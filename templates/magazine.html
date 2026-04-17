@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>智能仓储每日简讯 · {{ date_str }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&display=swap"
+    rel="stylesheet">
+  <style>
+    /* ===== 主题系统：CSS 变量 ===== */
+
+    /* 纸 (Paper) - 灵感自高端画册与独立杂志 */
+    .theme-notion {
+      --bg: #F7F5F0;
+      /* 更温暖的纸张底色 */
+      --bg-card: transparent;
+      --bg-placeholder: #EBE9E4;
+      --text: #666;
+      /* 极深灰，非纯黑 */
+      --text-secondary: #56534E;
+      --text-muted: #95918A;
+      --accent: #E04825;
+      /* 爱马仕橘红，绝佳跳色 */
+      --accent-light: rgba(224, 72, 37, 0.08);
+      --border: #E0DDD6;
+      --border-light: rgba(28, 27, 26, 0.06);
+      --font-title: "Noto Serif SC", "Songti SC", Georgia, serif;
+      --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+      --radius-card: 0px;
+      /* 印刷品不使用圆角 */
+      --radius-thumb: 0px;
+      --radius-btn: 0px;
+      --shadow-hover: none;
+      --spinner-track: rgba(0, 0, 0, 0.06);
+      --img-filter: sepia(10%) contrast(98%);
+      /* 微微复古滤镜 */
+    }
+
+    /* 简 (Minimal) - 灵感自极简设计与原生系统 */
+    .theme-apple {
+      --bg: #FFFFFF;
+      --bg-card: #FFFFFF;
+      --bg-placeholder: #F2F2F7;
+      --text: #666;
+      --text-secondary: #666666;
+      --text-muted: #999999;
+      --accent: #0066CC;
+      /* 高雅科技蓝 */
+      --accent-light: #F0F7FF;
+      --border: rgba(0, 0, 0, 0.08);
+      --border-light: rgba(0, 0, 0, 0.04);
+      --font-title: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+      --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+      --radius-card: 20px;
+      --radius-thumb: 12px;
+      --radius-btn: 100px;
+      --shadow-hover: 0 14px 40px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
+      --spinner-track: rgba(0, 0, 0, 0.06);
+      --img-filter: none;
+    }
+
+    /* 深 (Dark) - 灵感自数字先锋产品 */
+    .theme-linear {
+      --bg: #000000;
+      --bg-card: #000000;
+      --bg-placeholder: #121212;
+      --text: #FAFAFA;
+      --text-secondary: #A1A1A1;
+      --text-muted: #555555;
+      --accent: #6C5CE7;
+      /* 霓虹电紫 */
+      --accent-light: rgba(108, 92, 231, 0.15);
+      --border: #222222;
+      --border-light: rgba(255, 255, 255, 0.08);
+      --font-title: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+      --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+      --radius-card: 16px;
+      --radius-thumb: 8px;
+      --radius-btn: 6px;
+      --shadow-hover: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 10px 40px rgba(0, 0, 0, 0.4);
+      --spinner-track: rgba(255, 255, 255, 0.1);
+      --img-filter: brightness(0.9) contrast(1.1);
+    }
+
+    /* ===== Reset & Base ===== */
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      font-size: 16px;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      line-height: 1.6;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      transition: background-color 0.4s ease, color 0.4s ease;
+    }
+
+    /* ===== 核心排版：大留白容器 ===== */
+    .page-wrapper {
+      max-width: 760px;
+      /* 拉宽，更大气 */
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    @supports (padding-bottom: env(safe-area-inset-bottom)) {
+      .page-footer {
+        padding-bottom: calc(48px + env(safe-area-inset-bottom));
+      }
+    }
+
+    /* ===== 杂志页头 (Editorial Header) ===== */
+    .page-header {
+      padding: 8vh 0 5vh;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      /* 左对齐形成更强的版式结构感 */
+    }
+
+    .header-logo {
+      height: 28px;
+      width: auto;
+      margin-bottom: 46px;
+      /* 为标题留出充足呼吸空间 */
+      display: block;
+    }
+
+    .header-top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      margin-bottom: 24px;
+    }
+
+    .header-badge {
+      display: inline-block;
+      color: #4AB0B0;
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      border-bottom: 2px solid #E04825;
+      /* 标志性的底线跳色（保留暖色主题红） */
+      padding-bottom: 4px;
+    }
+
+    .header-date {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      font-family: var(--font-body);
+      letter-spacing: 0.05em;
+    }
+
+    .header-title {
+      font-family: var(--font-title);
+      font-size: clamp(34px, 8vw, 48px);
+      /* 响应式巨型字体 */
+      font-weight: 900;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 12px;
+    }
+
+    /* ===== 主题切换组件 (微交互细节) ===== */
+    .theme-switcher {
+      display: flex;
+      gap: 8px;
+      margin-top: 32px;
+    }
+
+    .theme-switcher a {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-muted);
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+      text-decoration: none;
+      font-family: var(--font-body);
+    }
+
+    .theme-switcher a:hover {
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+
+    .theme-switcher a.active {
+      background: var(--text);
+      color: var(--bg);
+      border-color: var(--text);
+    }
+
+    .header-divider {
+      width: 100%;
+      height: 1px;
+      background: var(--border-light);
+      margin-top: 48px;
+    }
+
+    /* ===== 全画幅头条卡片 (Featured Story) ===== */
+    .featured-section {
+      padding: 40px 0 20px;
+    }
+
+    .featured-card {
+      display: block;
+      text-decoration: none;
+      background: var(--bg-card);
+      border-radius: var(--radius-card);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease;
+    }
+
+    /* 核心优化：去掉卡片硬边框，用阴影和浮动造就高级感 */
+    .featured-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-hover);
+    }
+
+    .featured-image-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: var(--radius-thumb);
+      overflow: hidden;
+      background: var(--bg-placeholder);
+      margin-bottom: 24px;
+    }
+
+    .featured-image {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+      filter: var(--img-filter);
+    }
+
+    .featured-card:hover .featured-image {
+      transform: scale(1.04);
+    }
+
+    .featured-content {
+      padding: 0 4px;
+      /* 极简的左右内边距，保持与屏幕对齐 */
+    }
+
+    .featured-source {
+      color: #E04825; /* 全局统一使用 Notion 的高级红 */
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .featured-source::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      background: #E04825; /* 全局统一使用 Notion 的高级红 */
+      border-radius: 50%;
+    }
+
+    .featured-title {
+      font-family: var(--font-title);
+      font-size: clamp(24px, 5vw, 28px);
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.35;
+      letter-spacing: -0.01em;
+      margin-bottom: 16px;
+    }
+
+    .featured-summary {
+      font-size: 15px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* ===== 极简资讯列表序列 (List) ===== */
+    .articles-section {
+      padding: 20px 0 60px;
+    }
+
+    .section-label {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+    }
+
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-light);
+      margin-left: 16px;
+    }
+
+    .article-card {
+      display: flex;
+      gap: 24px;
+      padding: 28px 8px;
+      border-bottom: 1px solid var(--border-light);
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.3s ease;
+      border-radius: var(--radius-card);
+    }
+
+    .article-card:last-child {
+      border-bottom-color: transparent;
+    }
+
+    /* 悬浮时，取消底部边框，用背景色和位移暗示选择状态 */
+    .article-card:hover {
+      background: var(--bg-placeholder);
+      padding-left: 16px;
+      padding-right: 16px;
+      border-bottom-color: transparent;
+    }
+
+    /* 将图片右置，视觉流更符合阅读习惯：先文字标题，后配图确认 */
+    .article-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .article-meta {
+      font-size: 12px;
+      font-weight: 600;
+      color: #E04825;  /* 全局统一使用 Notion 的高级红 */
+      margin-bottom: 8px;
+      letter-spacing: 0.05em;
+      font-family: var(--font-body);
+    }
+
+    .article-title {
+      font-family: var(--font-title);
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.45;
+      margin-bottom: 8px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .article-summary {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .article-thumb {
+      flex-shrink: 0;
+      width: 120px;
+      aspect-ratio: 4 / 3;
+      border-radius: var(--radius-thumb);
+      overflow: hidden;
+      background: var(--bg-placeholder);
+      margin-top: 4px;
+      /* 微调与文字对齐 */
+    }
+
+    .article-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.6s ease;
+      filter: var(--img-filter);
+    }
+
+    .article-card:hover .article-thumb img {
+      transform: scale(1.08);
+      /* 悬浮图片微距放大 */
+    }
+
+    /* ===== 底部 ===== */
+    .page-footer {
+      padding: 60px 0 80px;
+      text-align: center;
+    }
+
+    .footer-divider {
+      width: 32px;
+      height: 2px;
+      background: #4AB0B0; /* 统一使用品牌主题色 */
+      margin: 0 auto 32px;
+      opacity: 0.5;
+    }
+
+    .footer-text {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      line-height: 1.8;
+      letter-spacing: 0.1em;
+      font-family: var(--font-body);
+    }
+
+    .footer-refresh {
+      display: inline-block;
+      margin-top: 24px;
+      padding: 10px 28px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--bg);
+      background: var(--text);
+      border: none;
+      border-radius: var(--radius-btn);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: var(--font-body);
+    }
+
+    .footer-refresh:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .footer-refresh:active {
+      transform: translateY(0);
+    }
+
+    /* ===== 桌面端适配 ===== */
+    @media (min-width: 768px) {
+      .page-wrapper {
+        padding: 0 48px;
+      }
+
+      .article-thumb {
+        width: 170px;
+      }
+
+      .article-title {
+        font-size: 20px;
+      }
+
+      .article-summary {
+        font-size: 15px;
+      }
+
+      .article-card {
+        padding: 32px 8px;
+        gap: 32px;
+      }
+    }
+
+    /* ===== 加载动画 ===== */
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.4s;
+    }
+
+    .loading-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-spinner {
+      width: 32px;
+      height: 32px;
+      border: 2px solid var(--spinner-track);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .loading-text {
+      margin-top: 16px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.1em;
+    }
+  </style>
+</head>
+
+<body class="theme-{{ theme }}">
+
+  {% if loading %}
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">UPDATING...</div>
+  </div>
+  {% endif %}
+
+  <div class="page-wrapper">
+
+    <!-- 留白高级页头 -->
+    <header class="page-header">
+      <img class="header-logo logo" src="/static/logo.png" alt="Mhstar">
+      <div class="header-top-row">
+        <div class="header-badge">Industry Briefing</div>
+        <div class="header-date">{{ date_str }}</div>
+      </div>
+      <h1 class="header-title">智能仓储每日简讯</h1>
+
+      <nav class="theme-switcher">
+        <a data-theme="notion" {% if theme=='notion' %}class="active" {% endif %} title="纸 - 典雅复古">纸</a>
+        <a data-theme="apple" {% if theme=='apple' %}class="active" {% endif %} title="简 - 纯粹极简">简</a>
+        <a data-theme="linear" {% if theme=='linear' %}class="active" {% endif %} title="深 - 沉浸先锋">深</a>
+      </nav>
+      <div class="header-divider"></div>
+    </header>
+
+    <!-- 头条区块 -->
+    {% if articles %}
+    <section class="featured-section">
+      <a href="{{ articles[0].url }}" target="_blank" class="featured-card">
+        <div class="featured-image-wrapper">
+          {% if articles[0].image_url %}
+          <img class="featured-image" src="{{ articles[0].image_url }}" alt="{{ articles[0].title }}" loading="eager">
+          {% endif %}
+        </div>
+        <div class="featured-content">
+          <div class="featured-source">{{ articles[0].source_name }} · {{ articles[0].published }}</div>
+          <h2 class="featured-title">{{ articles[0].title }}</h2>
+          {% if articles[0].summary %}
+          <p class="featured-summary">{{ articles[0].summary }}</p>
+          {% endif %}
+        </div>
+      </a>
+    </section>
+
+    <!-- 资讯列表 -->
+    <section class="articles-section">
+      <div class="section-label">LATEST INSIGHTS</div>
+      {% for article in articles[1:] %}
+      <a href="{{ article.url }}" target="_blank" class="article-card">
+        <div class="article-body">
+          <div class="article-meta">{{ article.source_name }} · {{ article.published }}</div>
+          <div class="article-title">{{ article.title }}</div>
+          {% if article.summary %}
+          <div class="article-summary">{{ article.summary }}</div>
+          {% endif %}
+        </div>
+        <div class="article-thumb">
+          {% if article.image_url %}
+          <img src="{{ article.image_url }}" alt="{{ article.title }}" loading="lazy">
+          {% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </section>
+    {% else %}
+    <!-- 空状态 -->
+    <section class="articles-section" style="text-align:center;padding:120px 0;">
+      <div style="font-size:14px;color:var(--text-muted);font-weight:500;letter-spacing:0.1em;">今日暂无资讯</div>
+      <button class="footer-refresh" onclick="doRefresh(this)" style="margin-top:32px;">
+        即刻拉取
+      </button>
+    </section>
+    {% endif %}
+
+    <!-- 页脚 -->
+    <footer class="page-footer">
+      <div class="footer-divider"></div>
+      <div class="footer-text">
+        由 Mhstar 收集制作 · 资讯来源于网络，仅供参考
+      </div>
+      <button class="footer-refresh" onclick="doRefresh(this)">
+        刷新资讯
+      </button>
+    </footer>
+
+  </div>
+
+  <script>
+    // 主题切换交互
+    document.querySelectorAll('.theme-switcher a').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        var t = this.getAttribute('data-theme');
+
+        // 更新选中按钮
+        document.querySelectorAll('.theme-switcher a').forEach(el => el.classList.remove('active'));
+        this.classList.add('active');
+
+        // 平滑切换主题 Class
+        document.body.className = 'theme-' + t;
+
+        // 更新 URL，避免刷新丢失，同时无感切换
+        var url = new URL(location.href);
+        url.searchParams.set('theme', t);
+        window.history.replaceState({}, '', url);
+      });
+    });
+
+    // 手工刷新按钮
+    function doRefresh(btn) {
+      var orig = btn.textContent;
+      btn.textContent = 'FETCHING...';
+      btn.style.opacity = '0.7';
+      btn.style.pointerEvents = 'none';
+      fetch('/api/refresh', { method: 'POST' })
+        .then(function () { setTimeout(function () { location.reload(); }, 5000); })
+        .catch(function () {
+          btn.textContent = 'FAILED. RETRY';
+          btn.style.opacity = '1';
+          btn.style.pointerEvents = 'auto';
+        });
+    }
+  </script>
+
+</body>
+
+</html>

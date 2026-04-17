@@ -1,0 +1,239 @@
+"""
+每日工业资讯简报 - FastAPI Web 服务
+"""
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE, THEME
+from services.fetcher import fetch_all_news
+from services.generator import render_both, save_articles_json, load_articles_json
+
+# 日志配置
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+# 全局状态
+_is_fetching = False
+
+
+async def _do_fetch():
+    """执行一次完整的采集+生成流程"""
+    global _is_fetching
+    if _is_fetching:
+        logger.info("采集已在进行中，跳过")
+        return
+
+    _is_fetching = True
+    try:
+        logger.info("开始采集资讯...")
+        articles = await fetch_all_news()
+        if not articles:
+            logger.warning("未采集到任何资讯")
+            return
+
+        # 生成 Web 版和微信公众号版
+        web_path, wechat_path = render_both(articles)
+        save_articles_json(articles)
+        logger.info(f"资讯生成完成: {len(articles)} 条")
+    except Exception as e:
+        logger.error(f"采集失败: {e}", exc_info=True)
+    finally:
+        _is_fetching = False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期：启动定时任务"""
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        _do_fetch,
+        CronTrigger(hour=SCHEDULE_HOUR, minute=SCHEDULE_MINUTE),
+        id="daily_fetch",
+        replace_existing=True,
+    )
+    scheduler.start()
+    logger.info(f"定时任务已启动: 每天 {SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}")
+
+    yield
+
+    scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="每日工业资讯简报", lifespan=lifespan)
+
+# 静态文件
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# ===== 页面路由 =====
+
+@app.get("/", response_class=HTMLResponse)
+async def index(theme: str = Query(None)):
+    """今日资讯页面，支持 ?theme=notion|linear|apple 切换主题"""
+    t = theme or THEME
+    date_str = datetime.now().strftime("%Y-%m-%d")
+
+    # 尝试已有文件
+    theme_file = OUTPUT_DIR / f"{date_str}_{t}.html"
+    if theme_file.exists():
+        return HTMLResponse(content=theme_file.read_text(encoding="utf-8"))
+
+    # 文件不存在，从 JSON 动态渲染
+    data = load_articles_json(date_str)
+    if data:
+        from services.generator import render_page
+        from services.fetcher import Article
+        articles = [Article(**d) for d in data]
+        path = render_page(articles, "web", theme=t)
+        return HTMLResponse(content=path.read_text(encoding="utf-8"))
+
+    # 没有今日数据，返回加载页面并触发后台采集
+    asyncio.create_task(_do_fetch())
+    return HTMLResponse(content=_loading_page())
+
+
+@app.get("/wechat", response_class=HTMLResponse)
+async def wechat_page():
+    """微信公众号版本"""
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    wechat_file = OUTPUT_DIR / f"{date_str}_wechat.html"
+
+    if wechat_file.exists():
+        return HTMLResponse(content=wechat_file.read_text(encoding="utf-8"))
+
+    raise HTTPException(status_code=404, detail="今日微信公众号版尚未生成，请先刷新资讯")
+
+
+@app.get("/archive/{date_str}", response_class=HTMLResponse)
+async def archive(date_str: str):
+    """历史资讯页面"""
+    archive_file = OUTPUT_DIR / f"{date_str}.html"
+    if not archive_file.exists():
+        raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的资讯")
+    return HTMLResponse(content=archive_file.read_text(encoding="utf-8"))
+
+
+# ===== API 路由 =====
+
+@app.api_route("/api/refresh", methods=["GET", "POST"])
+async def refresh():
+    """手动触发重新采集（支持 GET 和 POST）"""
+    global _is_fetching
+    if _is_fetching:
+        return JSONResponse({"status": "already_fetching"})
+
+    asyncio.create_task(_do_fetch())
+    return JSONResponse({"status": "started"})
+
+
+@app.get("/api/news/today")
+async def news_today():
+    """今日资讯JSON数据"""
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    data = load_articles_json(date_str)
+    if not data:
+        return JSONResponse({"articles": [], "date": date_str})
+    return JSONResponse({"articles": data, "date": date_str})
+
+
+@app.get("/api/news/{date_str}")
+async def news_by_date(date_str: str):
+    """指定日期资讯JSON数据"""
+    data = load_articles_json(date_str)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的资讯数据")
+    return JSONResponse({"articles": data, "date": date_str})
+
+
+@app.get("/api/status")
+async def status():
+    """服务状态"""
+    return JSONResponse({
+        "fetching": _is_fetching,
+        "schedule": f"{SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}",
+        "available_dates": _get_available_dates(),
+    })
+
+
+# ===== 工具函数 =====
+
+def _get_available_dates() -> list[str]:
+    """获取已有资讯的日期列表"""
+    dates = []
+    for f in sorted(OUTPUT_DIR.glob("*.html"), reverse=True):
+        name = f.stem.replace("_wechat", "")
+        if name not in dates:
+            dates.append(name)
+    return dates[:30]  # 最多保留30天
+
+
+def _loading_page() -> str:
+    """返回加载中页面"""
+    date_display = datetime.now().strftime("%Y年%m月%d日")
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>每日工业资讯 · {date_display}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ background: #FAFAFA; min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }}
+.loading {{ text-align: center; padding: 24px; }}
+.spinner {{ width: 28px; height: 28px; border: 2px solid #E0E0E0; border-top-color: #999; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto; }}
+@keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+.text {{ margin-top: 14px; font-size: 13px; color: #BBB; letter-spacing: 1px; }}
+.brand {{ font-family: "Noto Serif SC", Georgia, serif; font-size: 20px; color: #1A1A1A; letter-spacing: 2px; margin-bottom: 24px; }}
+</style>
+</head>
+<body>
+<div class="loading">
+  <div class="brand">每日工业资讯</div>
+  <div class="spinner"></div>
+  <div class="text">正在采集今日资讯，请稍候...</div>
+</div>
+<script>
+// 轮询检查是否生成完成
+let attempts = 0;
+const check = setInterval(async () => {{
+  attempts++;
+  try {{
+    const res = await fetch('/api/news/today');
+    const data = await res.json();
+    if (data.articles && data.articles.length > 0) {{
+      clearInterval(check);
+      location.reload();
+    }}
+  }} catch(e) {{}}
+  if (attempts > 60) {{  // 最多等2分钟
+    clearInterval(check);
+    document.querySelector('.text').textContent = '采集超时，请刷新页面重试';
+  }}
+}}, 2000);
+</script>
+</body>
+</html>"""
+
+
+# ===== 启动入口 =====
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host=HOST, port=PORT)
