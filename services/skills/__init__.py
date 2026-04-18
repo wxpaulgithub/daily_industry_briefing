@@ -9,6 +9,10 @@
 
 from services.skills.toutiao import ToutiaoSkill
 from services.skills.wechat import WeChatSkill
+from services.skills.policy import PolicySkill
+from services.skills.bidding import BiddingSkill
+from services.skills.industry_media import IndustryMediaSkill
+from services.skills.expo_assoc import ExpoAssocSkill
 
 # ===== 已注册的 Skill 列表 =====
 # 按需添加新的 Skill 实例即可自动生效
@@ -16,4 +20,8 @@ from services.skills.wechat import WeChatSkill
 SKILLS = [
     ToutiaoSkill(),
     WeChatSkill(),
+    PolicySkill(),
+    BiddingSkill(),
+    IndustryMediaSkill(),
+    ExpoAssocSkill(),
 ]

@@ -135,6 +135,33 @@ EXCLUDE_KEYWORDS = [
     "贪污", "官员", "书记", "局长",
 ]
 
+SKILLS_USE_PRE_FILTER = {
+    "微信公众号",
+    "政策标准",
+    "招投标",
+    "行业媒体",
+    "展会协会",
+}
+
+ROBOT_CORE_KEYWORDS = [
+    "机器人", "人形机器人", "具身智能", "机械臂", "协作机器人",
+    "服务机器人", "陪伴机器人", "医疗机器人", "四足机器人",
+]
+
+WAREHOUSE_CONTEXT_KEYWORDS = [
+    "仓储", "仓库", "立库", "堆垛机", "物流", "供应链",
+    "wms", "wcs", "mes", "agv", "amr", "输送线", "拣选", "分拣",
+    "工厂", "产线", "制造", "工业",
+]
+
+
+def _is_pure_robot_topic(article: Article) -> bool:
+    """识别“机器人相关但缺少智能仓储/工业上下文”的文章"""
+    text = (article.title + " " + article.summary).lower()
+    has_robot = any(kw.lower() in text for kw in ROBOT_CORE_KEYWORDS)
+    has_warehouse_context = any(kw.lower() in text for kw in WAREHOUSE_CONTEXT_KEYWORDS)
+    return has_robot and not has_warehouse_context
+
 
 def filter_relevant(articles: list[Article]) -> list[Article]:
     """过滤掉与工业领域无关的文章
@@ -149,9 +176,12 @@ def filter_relevant(articles: list[Article]) -> list[Article]:
         # 所有来源统一排除无关内容
         if any(kw in title for kw in EXCLUDE_KEYWORDS):
             continue
+        # 过滤纯机器人内容，保留仓储/工业场景相关机器人资讯
+        if _is_pure_robot_topic(article):
+            continue
 
-        if article.skill_name == "微信公众号":
-            # 公众号文章：搜索关键词已做预筛选，直接放行
+        if article.skill_name in SKILLS_USE_PRE_FILTER:
+            # 这些来源在 Skill 内已做关键词预筛选，这里仅做排除过滤
             relevant.append(article)
         else:
             # 其他来源：必须命中行业关键词才保留

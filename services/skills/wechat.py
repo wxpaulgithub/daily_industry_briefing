@@ -1,4 +1,4 @@
-"""
+﻿"""
 微信公众号搜索 Skill - 通过搜狗微信搜索获取公众号文章
 
 搜狗微信搜索 (weixin.sogou.com) 可按关键词搜索公众号文章，
@@ -30,6 +30,54 @@ _BLOCK_INDICATORS = ["antispider", "verify", "captcha", "验证", "频繁"]
 
 # 搜狗域名前缀，用于补全相对链接
 _SOGOU_BASE = "https://weixin.sogou.com"
+
+def _decode_js_url(raw: str) -> str:
+    """清理 JS/HTML 中提取到的 URL 片段"""
+    if not raw:
+        return ""
+    val = unescape(raw.strip().strip("\"'")).replace("\\/", "/")
+    val = val.replace("\\x26", "&").replace("\\u0026", "&")
+    return val
+
+
+def _extract_real_wechat_url(text: str) -> str:
+    """从搜狗跳转页 HTML/JS 中提取真实微信文章链接"""
+    if not text:
+        return ""
+
+    # 1) 经典拼接写法：url += '...'
+    parts = re.findall(r"url\s*\+=\s*'([^']*)'", text)
+    if parts:
+        candidate = _decode_js_url("".join(parts))
+        if candidate.startswith("http"):
+            return candidate
+
+    # 2) 直接跳转写法：window.location.replace('...') / location.href='...'
+    direct_patterns = [
+        r"window\.location\.replace\(\s*'([^']+)'\s*\)",
+        r'window\.location\.replace\(\s*"([^"]+)"\s*\)',
+        r"window\.location\.href\s*=\s*'([^']+)'",
+        r'window\.location\.href\s*=\s*"([^"]+)"',
+        r"location\.href\s*=\s*'([^']+)'",
+        r'location\.href\s*=\s*"([^"]+)"',
+    ]
+    for pat in direct_patterns:
+        m = re.search(pat, text)
+        if m:
+            candidate = _decode_js_url(m.group(1))
+            if candidate.startswith("http"):
+                return candidate
+
+    # 3) 页面中直接包含 mp.weixin.qq.com/s?...（含转义形式）
+    m = re.search(r"https?:\\/\\/mp\\.weixin\\.qq\\.com\\/s\?[^\"'<>\s]+", text)
+    if m:
+        return _decode_js_url(m.group(0))
+
+    m = re.search(r"https?://mp\.weixin\.qq\.com/s\?[^\"'<>\s]+", text)
+    if m:
+        return _decode_js_url(m.group(0))
+
+    return ""
 
 
 class WeChatSkill(NewsSkill):
@@ -90,33 +138,41 @@ class WeChatSkill(NewsSkill):
         return articles[:count]
 
     async def _resolve_redirects(self, client: httpx.AsyncClient, articles: list[Article]) -> None:
-        """解析搜狗跳转链接，提取真实的微信文章 URL
-
-        搜狗跳转页用 JS 拼接真实 URL：
-            var url = '';
-            url += 'https://mp.';
-            url += 'weixin.qq.c';
-            url += 'om/s?...';
-            window.location.replace(url)
-        """
+        """解析搜狗跳转链接，提取真实的微信文章 URL"""
         async def _resolve_one(article: Article) -> None:
             if not article.url or "sogou.com/link" not in article.url:
                 return
             try:
+                # 先尝试不跟随重定向，直接读取 Location
                 resp = await client.get(
                     article.url,
                     headers={"Referer": "https://weixin.sogou.com/"},
+                    follow_redirects=False,
                 )
-                # 提取 JS 中 url += '...' 的所有片段并拼接
-                parts = re.findall(r"url\s*\+=\s*'([^']*)'", resp.text)
-                if parts:
-                    real_url = "".join(parts)
-                    if real_url.startswith("http"):
-                        article.url = real_url
+                location = resp.headers.get("location") or resp.headers.get("Location")
+                if location:
+                    location = _decode_js_url(location)
+                    if location.startswith("//"):
+                        location = "https:" + location
+                    if "mp.weixin.qq.com/" in location:
+                        article.url = location
+                        return
+
+                # 再从页面脚本中提取真实链接
+                real_url = _extract_real_wechat_url(resp.text)
+                if real_url and "mp.weixin.qq.com/" in real_url:
+                    article.url = real_url
             except Exception:
-                pass
+                return
 
         await asyncio.gather(*[_resolve_one(a) for a in articles])
+
+        # 兜底：仍然是 sogou 跳转链的文章会导致前端点击 403，直接剔除
+        before = len(articles)
+        articles[:] = [a for a in articles if not (a.url and "sogou.com/link" in a.url)]
+        dropped = before - len(articles)
+        if dropped > 0:
+            logger.info(f"[微信公众号] 过滤未解出的搜狗跳转链接 {dropped} 条")
 
     async def fetch_all(self, client: httpx.AsyncClient) -> list[Article]:
         """顺序搜索所有关键词（搜狗有频率限制，不宜并发）"""
@@ -134,6 +190,8 @@ class WeChatSkill(NewsSkill):
                 continue
 
         logger.info(f"[{self.name}] 采集完成，获取 {len(all_articles)} 条原始资讯")
+        for a in all_articles:
+            a.skill_name = self.name
         return all_articles
 
     # ===== HTML 解析 =====

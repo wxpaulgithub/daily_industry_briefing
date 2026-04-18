@@ -1,4 +1,4 @@
-"""
+﻿"""
 智能仓储每日简讯 - FastAPI Web 服务
 """
 import asyncio
@@ -77,6 +77,12 @@ app = FastAPI(title="智能仓储每日简讯", lifespan=lifespan)
 # 静态文件
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# 资讯图片目录（output/images）用于页面中的 images/... 路径
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+IMAGES_DIR = OUTPUT_DIR / "images"
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
 
 # ===== 页面路由 =====
