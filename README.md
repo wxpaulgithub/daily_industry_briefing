@@ -76,6 +76,24 @@ python app.py
 
 系统采用可插拔的 Skill 架构，每个数据源是一个独立的 Skill，所有 Skill 并发采集后统一过滤去重精选。
 
+### 最近更新（2026-04）
+
+- 新增多信源体系：在保留 `ToutiaoSkill`、`WeChatSkill` 的基础上，新增 4 个 RSS 技能：
+  - `PolicySkill`（政策标准）
+  - `BiddingSkill`（招投标）
+  - `IndustryMediaSkill`（行业媒体）
+  - `ExpoAssocSkill`（展会协会）
+- 新增 `RSSKeywordSkill` 通用基类（`services/skills/rss_generic.py`），统一了 RSS/Atom 抓取、关键词过滤、时间解析、图片提取与容错逻辑。
+- 微信公众号链接可用性增强：`services/skills/wechat.py` 增加搜狗跳转解析（`Location` + JS 解析），并过滤无法解出的跳转链接，降低前端点击 403。
+- 图片可访问性修复：
+  - `app.py` 挂载 `/images -> output/images`。
+  - `services/generator.py` 本地图片路径统一为绝对路径 `/images/...`，并在下载失败时回退原图 URL，避免整页无图。
+- 过滤与排序优化：
+  - 扩展 `SKILLS_USE_PRE_FILTER`，让新增信源按“预筛选来源”路径进入主流程，减少误杀。
+  - 增加“纯机器人内容过滤”：机器人相关但缺少仓储/工业上下文的内容会被过滤。
+  - 增加“厂商优先显示”：命中厂商关键词的文章在打分和组内排序时优先。
+- 展示条数调整：`MAX_ARTICLES` 已从 `20` 提升到 `24`，适配多信源接入。
+
 ### 架构说明
 
 ```
@@ -201,7 +219,12 @@ python fetch.py
 
 | Skill | 文件 | 数据源 | 特点 |
 |-------|------|--------|------|
-| ToutiaoSkill | `skills/toutiao.py` | 今日头条搜索 API | 国内可用，图片覆盖率 86%+ |
+| ToutiaoSkill | `skills/toutiao.py` | 今日头条搜索 API | 时效性强、覆盖广 |
+| WeChatSkill | `skills/wechat.py` | 搜狗微信搜索 | 补足公众号深度内容，含跳转链接解析 |
+| PolicySkill | `skills/policy.py` | 政策/部委 RSS | 政策与标准导向 |
+| BiddingSkill | `skills/bidding.py` | 招投标 RSS | 项目商机与中标动态 |
+| IndustryMediaSkill | `skills/industry_media.py` | 行业媒体 RSS | 产业趋势与案例 |
+| ExpoAssocSkill | `skills/expo_assoc.py` | 展会/协会 RSS | 展会活动与行业风向 |
 
 ---
 
@@ -275,12 +298,27 @@ EXCLUDE_KEYWORDS = [
 ]
 ```
 
+**预筛选来源放行**（`SKILLS_USE_PRE_FILTER`）：
+
+- 当前包含：`微信公众号`、`政策标准`、`招投标`、`行业媒体`、`展会协会`
+- 这些来源在各自 Skill 内已做关键词筛选，主过滤阶段仅执行排除过滤，减少误杀。
+
+**纯机器人内容过滤**：
+
+- 增加了“机器人主题但缺少仓储/工业上下文”的识别规则。
+- 例如纯人形机器人热点会被过滤；`AGV/AMR/仓储机器人/工厂自动化` 相关内容会保留。
+
+**厂商优先显示**：
+
+- 新增 `VENDOR_PRIORITY_KEYWORDS`（可持续扩充），在 `score_article` 与 `select_articles` 的组内排序中双重加权。
+- 这意味着命中厂商关键词的文章会更容易进入最终展示前列。
+
 ### 修改精选参数
 
 编辑 `config.py`：
 
 ```python
-MAX_ARTICLES = 15          # 最终精选文章数量
+MAX_ARTICLES = 24          # 最终精选文章数量
 SUMMARY_MAX_LENGTH = 200   # 摘要最大字符数
 MAX_ARTICLE_AGE_DAYS = 15  # 只选取15天内的文章
 ```

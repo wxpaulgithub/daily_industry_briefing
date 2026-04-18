@@ -94,7 +94,7 @@ class WeChatSkill(NewsSkill):
             {"keyword": "智能制造 工业自动化", "label": "智能制造"},
             {"keyword": "AGV 物流机器人 仓储机器人", "label": "AGV物流"},
             {"keyword": "WMS WCS MES 数字化工厂", "label": "数字化"},
-            {"keyword": "中鼎 承亿 昆船 北自院 兰剑", "label": "厂商"},
+            {"keyword": "中鼎集成 昆船智能 北自科技 兰剑 今天国际 井松智能 音飞储存 德马科技 极智嘉 海柔创新 快仓", "label": "厂商"},
             {"keyword": "工业自动化展 智能制造展 物流展", "label": "工业展览"},
         ]
 

@@ -47,6 +47,7 @@ jobs:
             git reset --hard origin/master
 
             echo ">>> 步骤 2/2: 构建并重启 Docker 容器..."
-            docker compose up -d --build --remove-orphans
+            docker compose down
+            docker compose up -d --build --force-recreate --remove-orphans
 
             echo "========== 部署完成 =========="

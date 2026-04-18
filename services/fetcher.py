@@ -143,6 +143,49 @@ SKILLS_USE_PRE_FILTER = {
     "展会协会",
 }
 
+VENDOR_PRIORITY_KEYWORDS = [
+    # 核心厂商关键词（智能仓储/物流自动化）
+    "中鼎",
+    "中鼎集成",
+    "承亿",
+    "昆船",
+    "昆船智能",
+    "北自院",
+    "北自所",
+    "兰剑",
+    "今天国际",
+    "北自科技",
+    "井松智能",
+    "音飞储存",
+    "德马科技",
+    "诺力股份",
+    "中科微至",
+    "东杰智能",
+    "机器人股份",
+    "新松",
+    "海康机器人",
+    "极智嘉",
+    "海柔创新",
+    "快仓",
+    "劢微机器人",
+    "库卡",
+    "ABB",
+    "西门子",
+    "施耐德",
+    "德马泰克",
+    "Dematic",
+    "瑞仕格",
+    "Swisslog",
+    "大福",
+    "Daifuku",
+    "胜斐迩",
+    "SSI Schaefer",
+    "KNAPP",
+    "范德兰德",
+    "Vanderlande",
+    "TGW",
+]
+
 ROBOT_CORE_KEYWORDS = [
     "机器人", "人形机器人", "具身智能", "机械臂", "协作机器人",
     "服务机器人", "陪伴机器人", "医疗机器人", "四足机器人",
@@ -161,6 +204,12 @@ def _is_pure_robot_topic(article: Article) -> bool:
     has_robot = any(kw.lower() in text for kw in ROBOT_CORE_KEYWORDS)
     has_warehouse_context = any(kw.lower() in text for kw in WAREHOUSE_CONTEXT_KEYWORDS)
     return has_robot and not has_warehouse_context
+
+
+def _has_vendor_priority_hit(article: Article) -> bool:
+    """命中厂商关键词则视为优先内容"""
+    text = (article.title + " " + article.summary + " " + article.source_name).lower()
+    return any(kw.lower() in text for kw in VENDOR_PRIORITY_KEYWORDS)
 
 
 def filter_relevant(articles: list[Article]) -> list[Article]:
@@ -245,7 +294,10 @@ def score_article(article: Article) -> float:
         if src in article.source_name:
             score += 0.1
             break
-    return min(score, 1.0)
+    # 厂商相关内容优先显示
+    if _has_vendor_priority_hit(article):
+        score += 0.2
+    return min(score, 1.2)
 
 
 def select_articles(articles: list[Article], count: int) -> list[Article]:
@@ -258,7 +310,11 @@ def select_articles(articles: list[Article], count: int) -> list[Article]:
         key = item[0].skill_name or "default"
         groups.setdefault(key, []).append(item)
     for key in groups:
-        groups[key].sort(key=lambda x: x[1], reverse=True)
+        # 同分时优先厂商命中内容
+        groups[key].sort(
+            key=lambda x: (_has_vendor_priority_hit(x[0]), x[1]),
+            reverse=True,
+        )
 
     # 记录已选文章 uid，防止跨组重复
     selected: list[Article] = []

@@ -86,6 +86,7 @@ def download_article_images(articles: list) -> None:
         for article in articles:
             if not article.image_url:
                 continue
+            original_url = article.image_url
             try:
                 referer = _get_referer_for_url(article.image_url)
                 resp = client.get(
@@ -94,17 +95,20 @@ def download_article_images(articles: list) -> None:
                 )
                 if resp.status_code != 200:
                     logger.debug(f"图片下载失败 [{resp.status_code}]: {article.image_url[:60]}")
-                    article.image_url = ""
+                    # 下载失败时回退到原图地址，避免页面无图
+                    article.image_url = original_url
                     continue
 
                 ext = _ext_from_content_type(resp.headers.get("content-type", ""))
                 filename = hashlib.md5(article.image_url.encode()).hexdigest()[:10] + ext
                 (img_dir / filename).write_bytes(resp.content)
-                article.image_url = f"images/{filename}"
+                # 使用绝对路径，避免在 /archive 等路由下相对路径解析错误
+                article.image_url = f"/images/{filename}"
 
             except Exception as e:
                 logger.debug(f"图片下载异常: {e}")
-                article.image_url = ""
+                # 异常时回退到原图地址，避免页面无图
+                article.image_url = original_url
 
 
 def _get_referer_for_url(url: str) -> str:

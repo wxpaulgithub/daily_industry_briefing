@@ -32,7 +32,7 @@ class ToutiaoSkill(NewsSkill):
             {"keyword": "制造业 数字化转型 工业互联网", "label": "数字化"},
             {"keyword": "工业4.0 数字孪生 MES WMS WCS", "label": "工业技术"},
             {"keyword": "工业自动化展 智能制造展 物流展", "label": "工业展览"},
-            {"keyword": "中鼎 承亿 昆船 北自院 兰剑", "label": "厂商"},
+            {"keyword": "中鼎集成 昆船智能 北自科技 兰剑 今天国际 井松智能 音飞储存 德马科技 极智嘉 海柔创新 快仓", "label": "厂商"},
         ]
 
     async def fetch(self, client: httpx.AsyncClient, keyword: str, count: int = 10) -> list[Article]:
