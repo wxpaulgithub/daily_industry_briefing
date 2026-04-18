@@ -19,6 +19,7 @@ import httpx
 
 from config import (
     MAX_ARTICLES,
+    MAX_ARTICLE_AGE_DAYS,
     REQUEST_TIMEOUT,
     SUMMARY_MAX_LENGTH,
     USER_AGENT,
@@ -41,6 +42,7 @@ class Article:
     published_ts: float = 0.0
     fetched_at: float = field(default_factory=time.time)
     content_quality: float = 0.0
+    skill_name: str = ""  # 来源 Skill 标识，用于差异化过滤
 
     @property
     def uid(self) -> str:
@@ -75,6 +77,8 @@ class NewsSkill(ABC):
         results = await asyncio.gather(*tasks)
         articles = []
         for batch in results:
+            for a in batch:
+                a.skill_name = self.name
             articles.extend(batch)
         logger.info(f"[{self.name}] 采集完成，获取 {len(articles)} 条原始资讯")
         return articles
@@ -118,6 +122,7 @@ REQUIRED_KEYWORDS = [
     "项目", "中标", "招标", "签约", "投产",
     "展会", "博览会", "论坛", "峰会",
     "数字孪生", "工业互联网", "工业4.0", "仿真",
+    "中鼎", "承亿", "昆船", "北自院", "立库集成", "兰剑",
 ]
 
 EXCLUDE_KEYWORDS = [
@@ -132,15 +137,27 @@ EXCLUDE_KEYWORDS = [
 
 
 def filter_relevant(articles: list[Article]) -> list[Article]:
-    """过滤掉与工业领域无关的文章"""
+    """过滤掉与工业领域无关的文章
+
+    公众号文章（skill_name="微信公众号"）已通过搜索关键词预筛选，
+    仅做排除过滤，不做关键词命中检测，避免误杀。
+    其他数据源仍执行完整的「排除 + 必须命中」双重过滤。
+    """
     relevant = []
     for article in articles:
         title = article.title.lower()
+        # 所有来源统一排除无关内容
         if any(kw in title for kw in EXCLUDE_KEYWORDS):
             continue
-        text = (article.title + article.summary).lower()
-        if any(kw.lower() in text for kw in REQUIRED_KEYWORDS):
+
+        if article.skill_name == "微信公众号":
+            # 公众号文章：搜索关键词已做预筛选，直接放行
             relevant.append(article)
+        else:
+            # 其他来源：必须命中行业关键词才保留
+            text = (article.title + article.summary).lower()
+            if any(kw.lower() in text for kw in REQUIRED_KEYWORDS):
+                relevant.append(article)
     return relevant
 
 
@@ -202,36 +219,60 @@ def score_article(article: Article) -> float:
 
 
 def select_articles(articles: list[Article], count: int) -> list[Article]:
-    """精选最终列表"""
+    """精选最终列表，按数据源轮选保障多样性"""
     scored = [(a, score_article(a)) for a in articles]
-    scored.sort(key=lambda x: x[1], reverse=True)
 
+    # 按 skill_name 分组，组内按分数降序排列
+    groups: dict[str, list[tuple]] = {}
+    for item in scored:
+        key = item[0].skill_name or "default"
+        groups.setdefault(key, []).append(item)
+    for key in groups:
+        groups[key].sort(key=lambda x: x[1], reverse=True)
+
+    # 记录已选文章 uid，防止跨组重复
     selected: list[Article] = []
     selected_set: set[str] = set()
-    remaining = list(scored)
 
-    while len(selected) < count and remaining:
-        for i, (art, _) in enumerate(remaining):
-            uid = art.uid
-            if uid in selected_set:
-                continue
-            if art.published_ts > 0:
-                age_days = (time.time() - art.published_ts) / 86400
-                if age_days > 30:
-                    continue
-            selected.append(art)
-            selected_set.add(uid)
-            remaining.pop(i)
-            break
-        else:
-            for i, (art, _) in enumerate(remaining):
-                if art.uid not in selected_set:
-                    selected.append(art)
-                    selected_set.add(art.uid)
-                    remaining.pop(i)
-                    break
-            else:
+    def _try_pick(item: tuple) -> bool:
+        """尝试选入一篇文章，超龄或重复则跳过"""
+        art, _ = item
+        if art.uid in selected_set:
+            return False
+        if art.published_ts > 0:
+            age_days = (time.time() - art.published_ts) / 86400
+            if age_days > MAX_ARTICLE_AGE_DAYS:
+                return False
+        selected.append(art)
+        selected_set.add(art.uid)
+        return True
+
+    # 轮流从各组取分数最高的文章（类似蛇形选秀）
+    group_names = list(groups.keys())
+    group_idx = {name: 0 for name in group_names}  # 每组当前候选位置
+    rounds_without_pick = 0
+    max_stalls = len(group_names) + 1
+
+    while len(selected) < count and rounds_without_pick < max_stalls:
+        picked_this_round = False
+        for name in group_names:
+            if len(selected) >= count:
                 break
+            idx = group_idx[name]
+            queue = groups[name]
+            # 从当前位置向后找第一个可用的
+            while idx < len(queue):
+                if _try_pick(queue[idx]):
+                    picked_this_round = True
+                    group_idx[name] = idx + 1
+                    break
+                idx += 1
+            else:
+                group_idx[name] = len(queue)  # 该组已耗尽
+        if not picked_this_round:
+            rounds_without_pick += 1
+        else:
+            rounds_without_pick = 0
 
     selected.sort(key=lambda a: a.published_ts, reverse=True)
     return selected[:count]

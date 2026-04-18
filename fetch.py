@@ -17,12 +17,12 @@ logging.basicConfig(
 )
 
 from services.fetcher import fetch_all_news
-from services.generator import render_both, save_articles_json
+from services.generator import download_article_images, render_both, save_articles_json
 
 
 async def main():
     print("=" * 40)
-    print("  每日工业资讯采集")
+    print("  智能仓储每日简讯采集")
     print("=" * 40)
 
     articles = await fetch_all_news()
@@ -30,13 +30,13 @@ async def main():
         print("未采集到任何资讯")
         return
 
-    web_path, wechat_path = render_both(articles)
+    download_article_images(articles)
+    render_both(articles)
     save_articles_json(articles)
 
     img_count = sum(1 for a in articles if a.image_url)
     print(f"\n采集完成: {len(articles)} 条资讯, {img_count} 条有配图")
-    print(f"Web页面: {web_path}")
-    print(f"微信页面: {wechat_path}")
+    print(f"页面已保存到 output/ 目录")
 
 
 if __name__ == "__main__":

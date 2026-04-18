@@ -14,7 +14,7 @@
 
     /* 纸 (Paper) - 灵感自高端画册与独立杂志 */
     .theme-notion {
-      --bg: #F7F5F0;
+      --bg: #fdf7ea;
       /* 更温暖的纸张底色 */
       --bg-card: transparent;
       --bg-placeholder: #EBE9E4;
@@ -52,7 +52,7 @@
       --accent-light: #F0F7FF;
       --border: rgba(0, 0, 0, 0.08);
       --border-light: rgba(0, 0, 0, 0.04);
-      --font-title: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+      --font-title: "Noto Serif SC", "Songti SC", Georgia, serif;
       --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
       --radius-card: 20px;
       --radius-thumb: 12px;
@@ -75,7 +75,7 @@
       --accent-light: rgba(108, 92, 231, 0.15);
       --border: #222222;
       --border-light: rgba(255, 255, 255, 0.08);
-      --font-title: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+      --font-title: "Noto Serif SC", "Songti SC", Georgia, serif;
       --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
       --radius-card: 16px;
       --radius-thumb: 8px;
@@ -133,18 +133,22 @@
       /* 左对齐形成更强的版式结构感 */
     }
 
-    .header-logo {
-      height: 28px;
+    .footer-logo {
+      height: 40px;
       width: auto;
-      margin-bottom: 46px;
-      /* 为标题留出充足呼吸空间 */
       display: block;
+      margin: 0 auto 40px;
+      opacity: 0.8;
+      transition: opacity 0.3s ease;
+    }
+
+    .footer-logo:hover {
+      opacity: 1;
     }
 
     .header-top-row {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       width: 100%;
       margin-bottom: 24px;
     }
@@ -162,14 +166,6 @@
       padding-bottom: 4px;
     }
 
-    .header-date {
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-muted);
-      font-family: var(--font-body);
-      letter-spacing: 0.05em;
-    }
-
     .header-title {
       font-family: var(--font-title);
       font-size: clamp(34px, 8vw, 48px);
@@ -179,6 +175,19 @@
       letter-spacing: -0.02em;
       line-height: 1.15;
       margin-bottom: 12px;
+    }
+
+    .header-subtitle {
+      font-family: var(--font-title);
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+    }
+
+    .header-subtitle .dot {
+      margin: 0 0.6em;
+      opacity: 0.4;
     }
 
     /* ===== 主题切换组件 (微交互细节) ===== */
@@ -538,7 +547,7 @@
   </style>
 </head>
 
-<body class="theme-{{ theme }}">
+<body>
 
   {% if loading %}
   <div class="loading-overlay" id="loadingOverlay">
@@ -551,17 +560,16 @@
 
     <!-- 留白高级页头 -->
     <header class="page-header">
-      <img class="header-logo logo" src="/static/logo.png" alt="Mhstar">
       <div class="header-top-row">
         <div class="header-badge">Industry Briefing</div>
-        <div class="header-date">{{ date_str }}</div>
       </div>
       <h1 class="header-title">智能仓储每日简讯</h1>
+      <p class="header-subtitle">Edited by Mhstar <span class="dot">·</span> {{ date_str }}</p>
 
       <nav class="theme-switcher">
-        <a data-theme="notion" {% if theme=='notion' %}class="active" {% endif %} title="纸 - 典雅复古">纸</a>
-        <a data-theme="apple" {% if theme=='apple' %}class="active" {% endif %} title="简 - 纯粹极简">简</a>
-        <a data-theme="linear" {% if theme=='linear' %}class="active" {% endif %} title="深 - 沉浸先锋">深</a>
+        <a data-theme="notion" title="纸 - 典雅复古">纸</a>
+        <a data-theme="apple" title="简 - 纯粹极简">简</a>
+        <a data-theme="linear" title="深 - 沉浸先锋">深</a>
       </nav>
       <div class="header-divider"></div>
     </header>
@@ -617,9 +625,9 @@
 
     <!-- 页脚 -->
     <footer class="page-footer">
-      <div class="footer-divider"></div>
+      <img class="footer-logo logo" src="/static/logo.png" alt="Mhstar">
       <div class="footer-text">
-        由 Mhstar 收集制作 · 资讯来源于网络，仅供参考
+        Mhstar 收集整理 · 资讯来源于网络
       </div>
       <button class="footer-refresh" onclick="doRefresh(this)">
         刷新资讯
@@ -629,25 +637,26 @@
   </div>
 
   <script>
-    // 主题切换交互
-    document.querySelectorAll('.theme-switcher a').forEach(function (a) {
-      a.addEventListener('click', function (e) {
-        e.preventDefault();
-        var t = this.getAttribute('data-theme');
+    // 主题切换：从 localStorage 读取用户偏好，纯前端 CSS 切换
+    (function () {
+      var saved = localStorage.getItem('theme') || 'notion';
+      document.body.className = 'theme-' + saved;
 
-        // 更新选中按钮
-        document.querySelectorAll('.theme-switcher a').forEach(el => el.classList.remove('active'));
-        this.classList.add('active');
-
-        // 平滑切换主题 Class
-        document.body.className = 'theme-' + t;
-
-        // 更新 URL，避免刷新丢失，同时无感切换
-        var url = new URL(location.href);
-        url.searchParams.set('theme', t);
-        window.history.replaceState({}, '', url);
+      // 标记当前选中按钮
+      document.querySelectorAll('.theme-switcher a').forEach(function (a) {
+        if (a.getAttribute('data-theme') === saved) {
+          a.classList.add('active');
+        }
+        a.addEventListener('click', function (e) {
+          e.preventDefault();
+          var t = this.getAttribute('data-theme');
+          document.querySelectorAll('.theme-switcher a').forEach(function (el) { el.classList.remove('active'); });
+          this.classList.add('active');
+          document.body.className = 'theme-' + t;
+          localStorage.setItem('theme', t);
+        });
       });
-    });
+    })();
 
     // 手工刷新按钮
     function doRefresh(btn) {

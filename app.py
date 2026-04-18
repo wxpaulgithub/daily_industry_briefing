@@ -1,5 +1,5 @@
 """
-每日工业资讯简报 - FastAPI Web 服务
+智能仓储每日简讯 - FastAPI Web 服务
 """
 import asyncio
 import logging
@@ -7,13 +7,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE, THEME
+from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE
 from services.fetcher import fetch_all_news
 from services.generator import render_both, save_articles_json, load_articles_json
 
@@ -45,7 +45,7 @@ async def _do_fetch():
             return
 
         # 生成 Web 版和微信公众号版
-        web_path, wechat_path = render_both(articles)
+        render_both(articles)
         save_articles_json(articles)
         logger.info(f"资讯生成完成: {len(articles)} 条")
     except Exception as e:
@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="每日工业资讯简报", lifespan=lifespan)
+app = FastAPI(title="智能仓储每日简讯", lifespan=lifespan)
 
 # 静态文件
 if STATIC_DIR.exists():
@@ -82,15 +82,14 @@ if STATIC_DIR.exists():
 # ===== 页面路由 =====
 
 @app.get("/", response_class=HTMLResponse)
-async def index(theme: str = Query(None)):
-    """今日资讯页面，支持 ?theme=notion|linear|apple 切换主题"""
-    t = theme or THEME
+async def index():
+    """今日资讯页面，主题由前端 localStorage + CSS 切换"""
     date_str = datetime.now().strftime("%Y-%m-%d")
 
     # 尝试已有文件
-    theme_file = OUTPUT_DIR / f"{date_str}_{t}.html"
-    if theme_file.exists():
-        return HTMLResponse(content=theme_file.read_text(encoding="utf-8"))
+    html_file = OUTPUT_DIR / f"{date_str}.html"
+    if html_file.exists():
+        return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
 
     # 文件不存在，从 JSON 动态渲染
     data = load_articles_json(date_str)
@@ -98,7 +97,7 @@ async def index(theme: str = Query(None)):
         from services.generator import render_page
         from services.fetcher import Article
         articles = [Article(**d) for d in data]
-        path = render_page(articles, "web", theme=t)
+        path = render_page(articles, "web")
         return HTMLResponse(content=path.read_text(encoding="utf-8"))
 
     # 没有今日数据，返回加载页面并触发后台采集
@@ -176,6 +175,9 @@ def _get_available_dates() -> list[str]:
     dates = []
     for f in sorted(OUTPUT_DIR.glob("*.html"), reverse=True):
         name = f.stem.replace("_wechat", "")
+        # 跳过带主题后缀的旧文件名
+        if "_" in name:
+            continue
         if name not in dates:
             dates.append(name)
     return dates[:30]  # 最多保留30天
@@ -189,7 +191,7 @@ def _loading_page() -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>每日工业资讯 · {date_display}</title>
+<title>智能仓储每日简讯 · {date_display}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
@@ -205,7 +207,7 @@ body {{ background: #FAFAFA; min-height: 100vh; display: flex; align-items: cent
 </head>
 <body>
 <div class="loading">
-  <div class="brand">每日工业资讯</div>
+  <div class="brand">智能仓储每日简讯</div>
   <div class="spinner"></div>
   <div class="text">正在采集今日资讯，请稍候...</div>
 </div>

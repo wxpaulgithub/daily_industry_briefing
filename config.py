@@ -1,5 +1,5 @@
 """
-每日工业资讯简报 - 配置文件
+智能仓储每日简讯 - 配置文件
 """
 from pathlib import Path
 
@@ -21,9 +21,9 @@ SCHEDULE_HOUR = 7    # 每天早上7点
 SCHEDULE_MINUTE = 0
 
 # 资讯数量
-MAX_ARTICLES = 15
+MAX_ARTICLES = 20
 SUMMARY_MAX_LENGTH = 200  # 摘要最大字符数
-MAX_ARTICLE_AGE_DAYS = 15 # 只选取30天内的文章
+MAX_ARTICLE_AGE_DAYS = 15 # 只选取15天内的文章
 
 # HTTP 请求配置
 REQUEST_TIMEOUT = 15       # 秒
@@ -40,5 +40,5 @@ IMAGE_QUALITY = 85         # JPEG 压缩质量
 DOWNLOAD_IMAGES = True     # 是否下载图片到本地
 
 # 页面主题配置
-# 可选值: "default", "notion", "linear", "apple"
+# 可选值: "notion", "apple", "linear"
 THEME = "notion"

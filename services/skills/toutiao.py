@@ -27,11 +27,12 @@ class ToutiaoSkill(NewsSkill):
     def search_queries(self) -> list[dict]:
         return [
             {"keyword": "智能制造 工业自动化 智能仓储 立库 堆垛机", "label": "智能制造"},
-            {"keyword": "智能工厂 数字化工厂", "label": "智能工厂"},
-            {"keyword": "立库招投标 仓储设备 智能仓库 中标", "label": "行业信息"},
+            {"keyword": "智能工厂 集成 数字化工厂 AGV", "label": "智能工厂"},
+            {"keyword": "立库招标 投标 仓储设备 智能仓库 中标", "label": "行业信息"},
             {"keyword": "制造业 数字化转型 工业互联网", "label": "数字化"},
-            {"keyword": "工业4.0 数字孪生 MES系统", "label": "工业技术"},
+            {"keyword": "工业4.0 数字孪生 MES WMS WCS", "label": "工业技术"},
             {"keyword": "工业自动化展 智能制造展 物流展", "label": "工业展览"},
+            {"keyword": "中鼎 承亿 昆船 北自院 兰剑", "label": "厂商"},
         ]
 
     async def fetch(self, client: httpx.AsyncClient, keyword: str, count: int = 10) -> list[Article]:

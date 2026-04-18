@@ -8,10 +8,12 @@
 """
 
 from services.skills.toutiao import ToutiaoSkill
+from services.skills.wechat import WeChatSkill
 
 # ===== 已注册的 Skill 列表 =====
 # 按需添加新的 Skill 实例即可自动生效
 
 SKILLS = [
     ToutiaoSkill(),
+    WeChatSkill(),
 ]

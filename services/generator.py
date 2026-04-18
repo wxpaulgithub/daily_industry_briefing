@@ -2,14 +2,16 @@
 页面生成器 - 将采集的资讯渲染为HTML文件
 统一模板 + CSS 变量主题切换
 """
+import hashlib
 import json
 import logging
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from jinja2 import Environment, FileSystemLoader
 
-from config import OUTPUT_DIR, TEMPLATE_DIR, THEME
+from config import DOWNLOAD_IMAGES, IMAGE_MAX_WIDTH, IMAGE_QUALITY, OUTPUT_DIR, TEMPLATE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -30,20 +32,18 @@ def _get_date_str() -> tuple[str, str]:
     return display, filename
 
 
-def render_page(articles: list, output_type: str = "web", theme: str = None) -> Path:
+def render_page(articles: list, output_type: str = "web") -> Path:
     """
     渲染资讯页面并保存到output目录
 
     Args:
         articles: Article对象列表
         output_type: "web" 或 "wechat"
-        theme: 主题名称 (notion/linear/apple)，None 时使用 config.THEME
 
     Returns:
         生成的HTML文件路径
     """
     date_display, date_file = _get_date_str()
-    t = theme or THEME
 
     template_name = "wechat.html" if output_type == "wechat" else "magazine.html"
     template = _jinja_env.get_template(template_name)
@@ -51,14 +51,12 @@ def render_page(articles: list, output_type: str = "web", theme: str = None) -> 
     html = template.render(
         articles=articles,
         date_str=date_display,
-        theme=t if output_type == "web" else "notion",
         loading=False,
     )
 
-    # 保存文件
+    # 保存文件：Web 版只有 {date}.html，主题由前端 CSS 切换
     suffix = "" if output_type == "web" else "_wechat"
-    theme_suffix = f"_{t}" if output_type == "web" else ""
-    output_path = OUTPUT_DIR / f"{date_file}{suffix}{theme_suffix}.html"
+    output_path = OUTPUT_DIR / f"{date_file}{suffix}.html"
     output_path.write_text(html, encoding="utf-8")
     logger.info(f"页面已生成: {output_path}")
 
@@ -70,6 +68,64 @@ def render_both(articles: list) -> tuple[Path, Path]:
     web_path = render_page(articles, "web")
     wechat_path = render_page(articles, "wechat")
     return web_path, wechat_path
+
+
+def download_article_images(articles: list) -> None:
+    """下载文章图片到本地，解决外部 CDN 防盗链问题
+
+    搜狗 CDN 和微信图片域名均做 Referer 校验，
+    直接在页面中引用会 403，因此下载到 output/images/ 本地化。
+    """
+    if not DOWNLOAD_IMAGES:
+        return
+
+    img_dir = OUTPUT_DIR / "images"
+    img_dir.mkdir(exist_ok=True)
+
+    with httpx.Client(timeout=15, follow_redirects=True) as client:
+        for article in articles:
+            if not article.image_url:
+                continue
+            try:
+                referer = _get_referer_for_url(article.image_url)
+                resp = client.get(
+                    article.image_url,
+                    headers={"Referer": referer} if referer else {},
+                )
+                if resp.status_code != 200:
+                    logger.debug(f"图片下载失败 [{resp.status_code}]: {article.image_url[:60]}")
+                    article.image_url = ""
+                    continue
+
+                ext = _ext_from_content_type(resp.headers.get("content-type", ""))
+                filename = hashlib.md5(article.image_url.encode()).hexdigest()[:10] + ext
+                (img_dir / filename).write_bytes(resp.content)
+                article.image_url = f"images/{filename}"
+
+            except Exception as e:
+                logger.debug(f"图片下载异常: {e}")
+                article.image_url = ""
+
+
+def _get_referer_for_url(url: str) -> str:
+    """根据图片 URL 域名返回对应的 Referer，绕过防盗链"""
+    if "sogoucdn.com" in url:
+        return "https://weixin.sogou.com/"
+    if "mmbiz.qpic.cn" in url or "mmbiz.qlogo.cn" in url:
+        return "https://mp.weixin.qq.com/"
+    return ""
+
+
+def _ext_from_content_type(content_type: str) -> str:
+    """根据 Content-Type 推断文件扩展名"""
+    ct = content_type.lower()
+    if "png" in ct:
+        return ".png"
+    if "gif" in ct:
+        return ".gif"
+    if "webp" in ct:
+        return ".webp"
+    return ".jpg"
 
 
 def save_articles_json(articles: list) -> Path:

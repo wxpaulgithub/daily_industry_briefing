@@ -1,0 +1,35 @@
+name: 自动部署 (工业资讯简报)
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH 远程部署到服务器
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            echo "========== 开始部署 智能仓储每日简讯 =========="
+
+            cd /opt/industry_briefing/daily_industry_briefing
+
+            # 拉取最新代码（强制对齐远程仓库）
+            echo ">>> 步骤 1/2: 拉取最新代码..."
+            git fetch --all
+            git reset --hard origin/master
+            git pull origin master
+
+            # 重新构建并启动容器
+            echo ">>> 步骤 2/2: 构建并启动 Docker 容器..."
+            docker compose up -d --build
+
+            echo "========== 部署完成 =========="
