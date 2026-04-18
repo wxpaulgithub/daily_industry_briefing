@@ -1,10 +1,11 @@
-FROM python:3.13-slim
+﻿FROM python:3.13-slim
 
 WORKDIR /app
 
 # 安装依赖（利用 Docker 层缓存，依赖不变则不重新安装）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir --default-timeout=120 --retries 10 -r requirements.txt
 
 # 复制项目文件
 COPY app.py config.py fetch.py ./

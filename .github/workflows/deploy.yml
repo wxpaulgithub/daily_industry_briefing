@@ -1,4 +1,4 @@
-name: 自动部署 (工业资讯简报)
+﻿name: 自动部署（工业资讯简报）
 
 on:
   push:
@@ -6,9 +6,18 @@ on:
       - master
   workflow_dispatch:
 
+concurrency:
+  group: deploy-industry-briefing-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
+    name: 部署到服务器
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
     steps:
       - name: SSH 远程部署到服务器
         uses: appleboy/ssh-action@v1
@@ -17,19 +26,27 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT }}
+          script_stop: true
+          command_timeout: 60m
           script: |
+            set -euo pipefail
+
             echo "========== 开始部署 智能仓储每日简讯 =========="
 
-            cd /opt/industry_briefing/daily_industry_briefing
+            PROJECT_DIR="/opt/industry_briefing/daily_industry_briefing"
+            if [ ! -d "$PROJECT_DIR/.git" ]; then
+              echo "错误：部署目录不存在或不是 Git 仓库：$PROJECT_DIR"
+              exit 1
+            fi
 
-            # 拉取最新代码（强制对齐远程仓库）
-            echo ">>> 步骤 1/2: 拉取最新代码..."
-            git fetch --all
+            cd "$PROJECT_DIR"
+
+            echo ">>> 步骤 1/2: 同步代码到 origin/master..."
+            git fetch --prune origin
+            git checkout master
             git reset --hard origin/master
-            git pull origin master
 
-            # 重新构建并启动容器
-            echo ">>> 步骤 2/2: 构建并启动 Docker 容器..."
-            docker compose up -d --build
+            echo ">>> 步骤 2/2: 构建并重启 Docker 容器..."
+            docker compose up -d --build --remove-orphans
 
             echo "========== 部署完成 =========="
