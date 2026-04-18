@@ -2,9 +2,11 @@
 通用 RSS 关键词过滤 Skill 基类
 """
 import calendar
+import asyncio
 import logging
 import re
 from typing import Any
+from urllib.parse import urljoin
 
 import feedparser
 import httpx
@@ -29,6 +31,10 @@ class RSSKeywordSkill(NewsSkill):
         return self.skill_name
 
     @property
+    def region_scope(self) -> str:
+        return "national"
+
+    @property
     def search_queries(self) -> list[dict]:
         # 复用框架中的 search_queries 结构：keyword 字段存放 feed URL
         return [
@@ -43,15 +49,43 @@ class RSSKeywordSkill(NewsSkill):
         if not feed_url:
             return []
 
-        try:
-            resp = await client.get(feed_url, headers={"Accept": "application/rss+xml, application/xml, text/xml"})
-            text = resp.text
-            feed = feedparser.parse(text)
-            entries = feed.entries or []
-            return self._entries_to_articles(entries, min(count, self.max_per_feed), feed_url, feed)
-        except Exception as e:
-            logger.warning(f"[{self.name}] RSS 抓取失败 [{feed_url}]: {e}")
-            return []
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                resp = await client.get(
+                    feed_url,
+                    headers={
+                        "Accept": "application/rss+xml, application/xml, text/xml, text/html",
+                        "Referer": feed_url,
+                    },
+                    timeout=30.0,
+                )
+                text = resp.text
+
+                # 1) 优先按 RSS/Atom 解析
+                feed = feedparser.parse(text)
+                entries = feed.entries or []
+                if entries:
+                    return self._entries_to_articles(entries, min(count, self.max_per_feed), feed_url, feed)
+
+                # 2) 兜底：按普通 HTML 列表页解析
+                html_entries = self._parse_html_as_entries(feed_url, text)
+                if html_entries:
+                    pseudo_feed = {"feed": {"title": self.source_name_fallback}}
+                    return self._entries_to_articles(
+                        html_entries,
+                        min(count, self.max_per_feed),
+                        feed_url,
+                        pseudo_feed,
+                    )
+                last_error = ValueError("empty_feed_and_empty_html_entries")
+            except Exception as e:
+                last_error = e
+            # 指数退避，避免瞬时网络抖动导致整源失败
+            await asyncio.sleep(min(2 ** attempt, 8))
+
+        logger.warning(f"[{self.name}] RSS 抓取失败 [{feed_url}]: {last_error!r}")
+        return []
 
     async def fetch_all(self, client: httpx.AsyncClient) -> list[Article]:
         all_articles: list[Article] = []
@@ -59,6 +93,7 @@ class RSSKeywordSkill(NewsSkill):
             batch = await self.fetch(client, source["keyword"], count=self.max_per_feed)
             for article in batch:
                 article.skill_name = self.name
+                article.region_scope = self.region_scope
             all_articles.extend(batch)
         logger.info(f"[{self.name}] 采集完成，获取 {len(all_articles)} 条原始资讯")
         return all_articles
@@ -114,6 +149,46 @@ class RSSKeywordSkill(NewsSkill):
             return title
         m = re.search(r"https?://([^/]+)", feed_url)
         return m.group(1) if m else self.source_name_fallback
+
+    def _parse_html_as_entries(self, base_url: str, html: str) -> list[dict]:
+        """把非 RSS 的列表页粗解析为条目，作为兜底来源"""
+        if not html:
+            return []
+
+        entries: list[dict] = []
+        seen: set[str] = set()
+
+        # 常见列表项：<a href="...">标题</a>
+        for href, title_html in re.findall(
+            r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        ):
+            title = clean_title(self._strip_html(title_html))
+            if len(title) < 8:
+                continue
+            if href.startswith("javascript:") or href.startswith("#"):
+                continue
+
+            url = urljoin(base_url, href)
+            if not url.startswith("http"):
+                continue
+            if url in seen:
+                continue
+            seen.add(url)
+
+            entries.append(
+                {
+                    "title": title,
+                    "link": url,
+                    "summary": "",
+                    "published": "",
+                }
+            )
+            if len(entries) >= self.max_per_feed * 3:
+                break
+
+        return entries
 
     @staticmethod
     def _strip_html(text: str) -> str:

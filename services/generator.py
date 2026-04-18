@@ -32,6 +32,19 @@ def _get_date_str() -> tuple[str, str]:
     return display, filename
 
 
+def render_html(articles: list, output_type: str = "web", scope: str = "national") -> str:
+    """渲染 HTML 文本（不落盘）"""
+    date_display, _ = _get_date_str()
+    template_name = "wechat.html" if output_type == "wechat" else "magazine.html"
+    template = _jinja_env.get_template(template_name)
+    return template.render(
+        articles=articles,
+        date_str=date_display,
+        loading=False,
+        scope=scope,
+    )
+
+
 def render_page(articles: list, output_type: str = "web") -> Path:
     """
     渲染资讯页面并保存到output目录
@@ -43,16 +56,8 @@ def render_page(articles: list, output_type: str = "web") -> Path:
     Returns:
         生成的HTML文件路径
     """
-    date_display, date_file = _get_date_str()
-
-    template_name = "wechat.html" if output_type == "wechat" else "magazine.html"
-    template = _jinja_env.get_template(template_name)
-
-    html = template.render(
-        articles=articles,
-        date_str=date_display,
-        loading=False,
-    )
+    _, date_file = _get_date_str()
+    html = render_html(articles, output_type=output_type, scope="national")
 
     # 保存文件：Web 版只有 {date}.html，主题由前端 CSS 切换
     suffix = "" if output_type == "web" else "_wechat"
@@ -148,6 +153,10 @@ def save_articles_json(articles: list) -> Path:
             "published": a.published,
             "published_ts": a.published_ts,
             "content_quality": a.content_quality,
+            "skill_name": a.skill_name,
+            "region_scope": getattr(a, "region_scope", "national"),
+            "demand_signal_score": getattr(a, "demand_signal_score", 0.0),
+            "is_potential_warehouse_demand": getattr(a, "is_potential_warehouse_demand", False),
         })
 
     json_path.write_text(

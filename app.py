@@ -7,15 +7,15 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE
-from services.fetcher import fetch_all_news
-from services.generator import render_both, save_articles_json, load_articles_json
+from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE, DEFAULT_SCOPE
+from services.fetcher import fetch_all_news, Article
+from services.generator import render_both, save_articles_json, load_articles_json, render_html
 
 # 日志配置
 logging.basicConfig(
@@ -88,27 +88,26 @@ app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 # ===== 页面路由 =====
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
+async def index(scope: str = Query(DEFAULT_SCOPE)):
     """今日资讯页面，主题由前端 localStorage + CSS 切换"""
+    scope = _normalize_scope(scope)
     date_str = datetime.now().strftime("%Y-%m-%d")
 
-    # 尝试已有文件
-    html_file = OUTPUT_DIR / f"{date_str}.html"
-    if html_file.exists():
-        return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
-
-    # 文件不存在，从 JSON 动态渲染
+    # 优先从 JSON 动态渲染，支持 scope 切换
     data = load_articles_json(date_str)
     if data:
-        from services.generator import render_page
-        from services.fetcher import Article
         articles = [Article(**d) for d in data]
-        path = render_page(articles, "web")
-        return HTMLResponse(content=path.read_text(encoding="utf-8"))
+        filtered = _filter_articles_by_scope(articles, scope)
+        return HTMLResponse(content=render_html(filtered, output_type="web", scope=scope))
+
+    # 兜底：旧文件兼容（仅 national）
+    html_file = OUTPUT_DIR / f"{date_str}.html"
+    if scope == "national" and html_file.exists():
+        return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
 
     # 没有今日数据，返回加载页面并触发后台采集
     asyncio.create_task(_do_fetch())
-    return HTMLResponse(content=_loading_page())
+    return HTMLResponse(content=_loading_page(scope))
 
 
 @app.get("/wechat", response_class=HTMLResponse)
@@ -124,12 +123,20 @@ async def wechat_page():
 
 
 @app.get("/archive/{date_str}", response_class=HTMLResponse)
-async def archive(date_str: str):
+async def archive(date_str: str, scope: str = Query(DEFAULT_SCOPE)):
     """历史资讯页面"""
+    scope = _normalize_scope(scope)
+    data = load_articles_json(date_str)
+    if data:
+        articles = [Article(**d) for d in data]
+        filtered = _filter_articles_by_scope(articles, scope)
+        html = render_html(filtered, output_type="web", scope=scope)
+        return HTMLResponse(content=html)
+
     archive_file = OUTPUT_DIR / f"{date_str}.html"
-    if not archive_file.exists():
-        raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的资讯")
-    return HTMLResponse(content=archive_file.read_text(encoding="utf-8"))
+    if scope == "national" and archive_file.exists():
+        return HTMLResponse(content=archive_file.read_text(encoding="utf-8"))
+    raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的资讯")
 
 
 # ===== API 路由 =====
@@ -146,22 +153,26 @@ async def refresh():
 
 
 @app.get("/api/news/today")
-async def news_today():
+async def news_today(scope: str = Query(DEFAULT_SCOPE)):
     """今日资讯JSON数据"""
+    scope = _normalize_scope(scope)
     date_str = datetime.now().strftime("%Y-%m-%d")
     data = load_articles_json(date_str)
     if not data:
-        return JSONResponse({"articles": [], "date": date_str})
-    return JSONResponse({"articles": data, "date": date_str})
+        return JSONResponse({"articles": [], "date": date_str, "scope": scope})
+    articles = _filter_articles_by_scope([Article(**d) for d in data], scope)
+    return JSONResponse({"articles": [a.__dict__ for a in articles], "date": date_str, "scope": scope})
 
 
 @app.get("/api/news/{date_str}")
-async def news_by_date(date_str: str):
+async def news_by_date(date_str: str, scope: str = Query(DEFAULT_SCOPE)):
     """指定日期资讯JSON数据"""
+    scope = _normalize_scope(scope)
     data = load_articles_json(date_str)
     if not data:
         raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的资讯数据")
-    return JSONResponse({"articles": data, "date": date_str})
+    articles = _filter_articles_by_scope([Article(**d) for d in data], scope)
+    return JSONResponse({"articles": [a.__dict__ for a in articles], "date": date_str, "scope": scope})
 
 
 @app.get("/api/status")
@@ -189,7 +200,18 @@ def _get_available_dates() -> list[str]:
     return dates[:30]  # 最多保留30天
 
 
-def _loading_page() -> str:
+def _normalize_scope(scope: str) -> str:
+    v = (scope or "").strip().lower()
+    return "local" if v == "local" else "national"
+
+
+def _filter_articles_by_scope(articles: list[Article], scope: str) -> list[Article]:
+    if scope == "local":
+        return [a for a in articles if (a.region_scope or "national") == "local"]
+    return [a for a in articles if (a.region_scope or "national") != "local"]
+
+
+def _loading_page(scope: str = "national") -> str:
     """返回加载中页面"""
     date_display = datetime.now().strftime("%Y年%m月%d日")
     return f"""<!DOCTYPE html>
@@ -208,11 +230,13 @@ body {{ background: #FAFAFA; min-height: 100vh; display: flex; align-items: cent
 .spinner {{ width: 28px; height: 28px; border: 2px solid #E0E0E0; border-top-color: #999; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto; }}
 @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
 .text {{ margin-top: 14px; font-size: 13px; color: #BBB; letter-spacing: 1px; }}
+.brand-logo {{ width: 96px; height: auto; display: block; margin: 0 auto 108px; opacity: 0.9; }}
 .brand {{ font-family: "Noto Serif SC", Georgia, serif; font-size: 20px; color: #1A1A1A; letter-spacing: 2px; margin-bottom: 24px; }}
 </style>
 </head>
 <body>
 <div class="loading">
+  <img class="brand-logo" src="/static/logo.png" alt="Mhstar">
   <div class="brand">智能仓储每日简讯</div>
   <div class="spinner"></div>
   <div class="text">正在采集今日资讯，请稍候...</div>
@@ -223,7 +247,7 @@ let attempts = 0;
 const check = setInterval(async () => {{
   attempts++;
   try {{
-    const res = await fetch('/api/news/today');
+    const res = await fetch('/api/news/today?scope={scope}');
     const data = await res.json();
     if (data.articles && data.articles.length > 0) {{
       clearInterval(check);

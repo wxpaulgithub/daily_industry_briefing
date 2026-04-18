@@ -149,6 +149,7 @@
     .header-top-row {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       width: 100%;
       margin-bottom: 24px;
     }
@@ -191,38 +192,85 @@
     }
 
     /* ===== 主题切换组件 (微交互细节) ===== */
+    .header-controls {
+      display: flex;
+      align-items: center;
+      margin-top: 24px;
+    }
+
     .theme-switcher {
       display: flex;
-      gap: 8px;
-      margin-top: 32px;
+      align-items: center;
+      gap: 16px;
     }
 
     .theme-switcher a {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 36px;
-      height: 36px;
-      font-size: 14px;
+      font-size: 11px;
       font-weight: 500;
       color: var(--text-muted);
-      border-radius: 50%;
-      border: 1px solid var(--border);
       cursor: pointer;
-      transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+      transition: all 0.3s ease;
       text-decoration: none;
-      font-family: var(--font-body);
+      position: relative;
     }
 
-    .theme-switcher a:hover {
-      color: var(--text);
-      border-color: var(--text-muted);
+    .theme-switcher a:hover:not(.active) {
+      color: var(--text-secondary);
     }
 
     .theme-switcher a.active {
-      background: var(--text);
-      color: var(--bg);
-      border-color: var(--text);
+      font-weight: 700;
+      color: #4AB0B0;
+      cursor: default;
+    }
+
+    .theme-switcher a.active::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background-color: #E04825;
+    }
+
+    .scope-switcher {
+      display: inline-flex;
+      align-items: center;
+      background: var(--bg-placeholder);
+      border-radius: 999px;
+      padding: 3px;
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+      border: 1px solid var(--border-light);
+    }
+
+    .scope-switcher a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 48px;
+      height: 26px;
+      padding: 0 14px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-radius: 999px;
+      text-decoration: none;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .scope-switcher a:hover:not(.active) {
+      color: var(--text);
+    }
+
+    .scope-switcher a.active {
+      background: var(--bg);
+      color: var(--text);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+      cursor: default;
     }
 
     .header-divider {
@@ -562,15 +610,21 @@
     <header class="page-header">
       <div class="header-top-row">
         <div class="header-badge">Industry Briefing</div>
+        <nav class="theme-switcher">
+          <a data-theme="notion" title="纸 - 典雅复古">纸</a>
+          <a data-theme="apple" title="简 - 纯粹极简">简</a>
+          <a data-theme="linear" title="深 - 沉浸先锋">深</a>
+        </nav>
       </div>
       <h1 class="header-title">智能仓储每日简讯</h1>
       <p class="header-subtitle">Edited by Mhstar <span class="dot">·</span> {{ date_str }}</p>
 
-      <nav class="theme-switcher">
-        <a data-theme="notion" title="纸 - 典雅复古">纸</a>
-        <a data-theme="apple" title="简 - 纯粹极简">简</a>
-        <a data-theme="linear" title="深 - 沉浸先锋">深</a>
-      </nav>
+      <div class="header-controls">
+        <nav class="scope-switcher">
+          <a data-scope="national" href="/?scope=national">国内</a>
+          <a data-scope="local" href="/?scope=local">本地</a>
+        </nav>
+      </div>
       <div class="header-divider"></div>
     </header>
 
@@ -617,9 +671,11 @@
     <!-- 空状态 -->
     <section class="articles-section" style="text-align:center;padding:120px 0;">
       <div style="font-size:14px;color:var(--text-muted);font-weight:500;letter-spacing:0.1em;">今日暂无资讯</div>
+      {% if scope != "local" %}
       <button class="footer-refresh" onclick="doRefresh(this)" style="margin-top:32px;">
         即刻拉取
       </button>
+      {% endif %}
     </section>
     {% endif %}
 
@@ -639,6 +695,9 @@
   <script>
     // 主题切换：从 localStorage 读取用户偏好，纯前端 CSS 切换
     (function () {
+      var params = new URLSearchParams(location.search);
+      var scope = params.get('scope') === 'local' ? 'local' : 'national';
+
       var saved = localStorage.getItem('theme') || 'notion';
       document.body.className = 'theme-' + saved;
 
@@ -656,20 +715,99 @@
           localStorage.setItem('theme', t);
         });
       });
+
+      // 范围切换：本地 / 国内
+      document.querySelectorAll('.scope-switcher a').forEach(function (a) {
+        var targetScope = a.getAttribute('data-scope');
+        if (targetScope === scope) {
+          a.classList.add('active');
+        }
+        a.addEventListener('click', function (e) {
+          e.preventDefault();
+          var p = new URLSearchParams(location.search);
+          p.set('scope', targetScope);
+          location.href = location.pathname + '?' + p.toString();
+        });
+      });
     })();
 
-    // 手工刷新按钮
+    // 手工刷新按钮：触发后轮询状态，拉取完成且有新数据则自动刷新
     function doRefresh(btn) {
       var orig = btn.textContent;
-      btn.textContent = 'FETCHING...';
-      btn.style.opacity = '0.7';
-      btn.style.pointerEvents = 'none';
-      fetch('/api/refresh', { method: 'POST' })
-        .then(function () { setTimeout(function () { location.reload(); }, 5000); })
+      var params = new URLSearchParams(location.search);
+      var scope = params.get('scope') === 'local' ? 'local' : 'national';
+      var baselineFetchedAt = 0;
+      var maxWaitMs = 3 * 60 * 1000; // 最长等待 3 分钟
+      var pollMs = 2000;
+      var startedAt = Date.now();
+
+      function setBusy(text) {
+        btn.textContent = text;
+        btn.style.opacity = '0.7';
+        btn.style.pointerEvents = 'none';
+      }
+
+      function setReady(text) {
+        btn.textContent = text || orig;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+      }
+
+      function getMaxFetchedAt(newsJson) {
+        var arr = (newsJson && newsJson.articles) || [];
+        var maxTs = 0;
+        arr.forEach(function (a) {
+          var ts = Number(a && a.fetched_at || 0);
+          if (ts > maxTs) maxTs = ts;
+        });
+        return maxTs;
+      }
+
+      function fetchToday() {
+        return fetch('/api/news/today?scope=' + scope).then(function (r) { return r.json(); });
+      }
+
+      function pollUntilDone() {
+        Promise.all([
+          fetch('/api/status').then(function (r) { return r.json(); }),
+          fetchToday()
+        ]).then(function (res) {
+          var status = res[0] || {};
+          var today = res[1] || {};
+          var latestFetchedAt = getMaxFetchedAt(today);
+          var hasNewData = latestFetchedAt > baselineFetchedAt;
+          var timedOut = (Date.now() - startedAt) > maxWaitMs;
+
+          if (hasNewData && status.fetching === false) {
+            location.reload();
+            return;
+          }
+
+          if (timedOut) {
+            setReady('已超时，稍后重试');
+            return;
+          }
+
+          setBusy(status.fetching ? 'FETCHING...' : '等待写入...');
+          setTimeout(pollUntilDone, pollMs);
+        }).catch(function () {
+          setReady('FAILED. RETRY');
+        });
+      }
+
+      setBusy('FETCHING...');
+
+      // 先记录当前数据时间戳，再触发刷新，避免把旧数据误判为新数据
+      fetchToday()
+        .then(function (today) {
+          baselineFetchedAt = getMaxFetchedAt(today);
+          return fetch('/api/refresh', { method: 'POST' });
+        })
+        .then(function () {
+          setTimeout(pollUntilDone, 800);
+        })
         .catch(function () {
-          btn.textContent = 'FAILED. RETRY';
-          btn.style.opacity = '1';
-          btn.style.pointerEvents = 'auto';
+          setReady('FAILED. RETRY');
         });
     }
   </script>

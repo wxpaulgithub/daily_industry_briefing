@@ -13,11 +13,15 @@ from services.skills.policy import PolicySkill
 from services.skills.bidding import BiddingSkill
 from services.skills.industry_media import IndustryMediaSkill
 from services.skills.expo_assoc import ExpoAssocSkill
+from services.skills.local_projects import LocalProjectSkill
+from services.skills.local_wechat import LocalWeChatProjectSkill
 
 # ===== 已注册的 Skill 列表 =====
 # 按需添加新的 Skill 实例即可自动生效
 
 SKILLS = [
+    LocalWeChatProjectSkill(),
+    LocalProjectSkill(),
     ToutiaoSkill(),
     WeChatSkill(),
     PolicySkill(),

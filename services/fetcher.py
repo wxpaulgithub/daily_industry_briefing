@@ -18,8 +18,17 @@ from html import unescape
 import httpx
 
 from config import (
+    DEFAULT_SCOPE,
+    LOCAL_EXCLUDE_KEYWORDS,
+    LOCAL_INDUSTRY_KEYWORDS,
+    LOCAL_INTENT_KEYWORDS,
+    LOCAL_REGION_KEYWORDS,
+    LOCAL_WECHAT_WHITELIST,
     MAX_ARTICLES,
+    MAX_ARTICLES_LOCAL,
     MAX_ARTICLE_AGE_DAYS,
+    NATIONAL_BIDDING_MIN_COUNT,
+    NATIONAL_WECHAT_MIN_COUNT,
     REQUEST_TIMEOUT,
     SUMMARY_MAX_LENGTH,
     USER_AGENT,
@@ -43,6 +52,9 @@ class Article:
     fetched_at: float = field(default_factory=time.time)
     content_quality: float = 0.0
     skill_name: str = ""  # 来源 Skill 标识，用于差异化过滤
+    region_scope: str = DEFAULT_SCOPE  # local / national
+    demand_signal_score: float = 0.0
+    is_potential_warehouse_demand: bool = False
 
     @property
     def uid(self) -> str:
@@ -71,6 +83,11 @@ class NewsSkill(ABC):
         """从数据源获取资讯，子类必须实现"""
         ...
 
+    @property
+    def region_scope(self) -> str:
+        """数据范围：local 或 national"""
+        return "national"
+
     async def fetch_all(self, client: httpx.AsyncClient) -> list[Article]:
         """并发搜索所有关键词并汇总结果（通用实现，子类一般无需重写）"""
         tasks = [self.fetch(client, q["keyword"], count=10) for q in self.search_queries]
@@ -79,6 +96,8 @@ class NewsSkill(ABC):
         for batch in results:
             for a in batch:
                 a.skill_name = self.name
+                if not a.region_scope:
+                    a.region_scope = self.region_scope
             articles.extend(batch)
         logger.info(f"[{self.name}] 采集完成，获取 {len(articles)} 条原始资讯")
         return articles
@@ -131,11 +150,14 @@ EXCLUDE_KEYWORDS = [
     "房价", "楼市", "股票", "A股", "涨停", "跌停",
     "明星", "综艺", "娱乐", "电影", "电视剧",
     "高考", "招生", "学区", "中考",
-    "疫情", "核酸", "疫苗",
+    "疫情", "核酸", "疫苗", "以旧换新",
+    "人形机器人", "具身机器人", "机器狗", "四足机器人",
+    "服务机器人", "养老机器人", "陪伴机器人",
     "贪污", "官员", "书记", "局长",
 ]
 
 SKILLS_USE_PRE_FILTER = {
+    "本地项目",
     "微信公众号",
     "政策标准",
     "招投标",
@@ -197,6 +219,22 @@ WAREHOUSE_CONTEXT_KEYWORDS = [
     "工厂", "产线", "制造", "工业",
 ]
 
+DEMAND_SIGNAL_KEYWORDS_STRONG = [
+    "引进项目", "最新项目", "重大项目", "招商引资", "产业园",
+    "新建厂房", "扩建", "开工", "投产", "落地", "签约",
+    "物流中心", "智能仓储", "自动化立库",
+]
+
+DEMAND_SIGNAL_KEYWORDS_MEDIUM = [
+    "技改", "数字化改造", "产线升级", "设备更新", "扩产",
+]
+
+BIDDING_PRIORITY_KEYWORDS = [
+    "招标", "中标", "中标候选人", "成交公告", "采购公告", "招标公告",
+    "公开招标", "竞争性磋商", "竞争性谈判", "单一来源", "EPC", "总包",
+    "立体库", "堆垛机", "输送线", "WMS", "WCS", "AGV", "物流自动化",
+]
+
 
 def _is_pure_robot_topic(article: Article) -> bool:
     """识别“机器人相关但缺少智能仓储/工业上下文”的文章"""
@@ -212,6 +250,59 @@ def _has_vendor_priority_hit(article: Article) -> bool:
     return any(kw.lower() in text for kw in VENDOR_PRIORITY_KEYWORDS)
 
 
+def _has_bidding_priority_hit(article: Article) -> bool:
+    """命中招投标关键词则优先"""
+    text = (article.title + " " + article.summary + " " + article.source_name).lower()
+    return any(kw.lower() in text for kw in BIDDING_PRIORITY_KEYWORDS)
+
+
+def _is_local_region_hit(article: Article) -> bool:
+    """本地文章必须命中区域词，避免本地/国内页面内容同质化"""
+    text = (article.title + " " + article.summary + " " + article.source_name).lower()
+    return any(kw.lower() in text for kw in LOCAL_REGION_KEYWORDS)
+
+
+def _is_local_intent_hit(article: Article) -> bool:
+    """本地资讯需命中项目/投资意图关键词"""
+    text = (article.title + " " + article.summary).lower()
+    return any(kw.lower() in text for kw in LOCAL_INTENT_KEYWORDS)
+
+
+def _is_local_industry_hit(article: Article) -> bool:
+    """本地资讯需命中工业/物流场景关键词"""
+    text = (article.title + " " + article.summary).lower()
+    return any(kw.lower() in text for kw in LOCAL_INDUSTRY_KEYWORDS)
+
+
+def _is_local_excluded(article: Article) -> bool:
+    """本地资讯硬排除关键词"""
+    text = (article.title + " " + article.summary + " " + article.source_name).lower()
+    return any(kw.lower() in text for kw in LOCAL_EXCLUDE_KEYWORDS)
+
+
+def _is_local_whitelist_source(article: Article) -> bool:
+    """来源是否命中本地公众号白名单"""
+    src = (article.source_name or "").strip().lower()
+    if not src:
+        return False
+    return any(kw.lower() in src for kw in LOCAL_WECHAT_WHITELIST)
+
+
+def _calc_demand_signal_score(article: Article) -> float:
+    """计算潜在仓储需求信号分"""
+    text = (article.title + " " + article.summary).lower()
+    score = 0.0
+    if any(kw.lower() in text for kw in DEMAND_SIGNAL_KEYWORDS_STRONG):
+        score += 0.7
+    if any(kw.lower() in text for kw in DEMAND_SIGNAL_KEYWORDS_MEDIUM):
+        score += 0.3
+    if any(kw.lower() in text for kw in WAREHOUSE_CONTEXT_KEYWORDS):
+        score += 0.3
+    if any(kw.lower() in text for kw in LOCAL_REGION_KEYWORDS):
+        score += 0.2
+    return min(score, 1.2)
+
+
 def filter_relevant(articles: list[Article]) -> list[Article]:
     """过滤掉与工业领域无关的文章
 
@@ -221,13 +312,24 @@ def filter_relevant(articles: list[Article]) -> list[Article]:
     """
     relevant = []
     for article in articles:
-        title = article.title.lower()
+        full_text = (article.title + " " + article.summary + " " + article.source_name).lower()
         # 所有来源统一排除无关内容
-        if any(kw in title for kw in EXCLUDE_KEYWORDS):
+        if any(kw.lower() in full_text for kw in EXCLUDE_KEYWORDS):
             continue
         # 过滤纯机器人内容，保留仓储/工业场景相关机器人资讯
         if _is_pure_robot_topic(article):
             continue
+        # 本地范围：三条件准入 + 本地硬排除
+        if (article.region_scope or "national") == "local":
+            if _is_local_excluded(article):
+                continue
+            if not _is_local_region_hit(article):
+                continue
+            if not _is_local_intent_hit(article):
+                continue
+            # 本地优先保证“项目意图”，工业场景不足时允许白名单公众号放行
+            if not (_is_local_industry_hit(article) or _is_local_whitelist_source(article)):
+                continue
 
         if article.skill_name in SKILLS_USE_PRE_FILTER:
             # 这些来源在 Skill 内已做关键词预筛选，这里仅做排除过滤
@@ -297,6 +399,11 @@ def score_article(article: Article) -> float:
     # 厂商相关内容优先显示
     if _has_vendor_priority_hit(article):
         score += 0.2
+    # 招投标内容优先显示
+    if article.skill_name == "招投标" or _has_bidding_priority_hit(article):
+        score += 0.18
+    # 本地潜在仓储需求项优先
+    score += article.demand_signal_score * 0.2
     return min(score, 1.2)
 
 
@@ -364,6 +471,63 @@ def select_articles(articles: list[Article], count: int) -> list[Article]:
     return selected[:count]
 
 
+def _ensure_wechat_quota(selected: list[Article], pool: list[Article], min_count: int) -> list[Article]:
+    """国内页公众号保底条数：有足够候选时保证最小数量"""
+    if min_count <= 0:
+        return selected
+
+    wechat_selected = [a for a in selected if a.skill_name == "微信公众号"]
+    if len(wechat_selected) >= min_count:
+        return selected
+
+    selected_uids = {a.uid for a in selected}
+    wechat_candidates = [a for a in pool if a.skill_name == "微信公众号" and a.uid not in selected_uids]
+    wechat_candidates.sort(key=score_article, reverse=True)
+
+    need = min_count - len(wechat_selected)
+    additions = wechat_candidates[:need]
+    if not additions:
+        return selected
+
+    # 用最低分非公众号条目替换
+    non_wechat = [a for a in selected if a.skill_name != "微信公众号"]
+    non_wechat.sort(key=score_article)
+    replace_n = min(len(additions), len(non_wechat))
+    to_remove = {a.uid for a in non_wechat[:replace_n]}
+
+    replaced = [a for a in selected if a.uid not in to_remove] + additions[:replace_n]
+    replaced.sort(key=lambda a: a.published_ts, reverse=True)
+    return replaced
+
+
+def _ensure_bidding_quota(selected: list[Article], pool: list[Article], min_count: int) -> list[Article]:
+    """国内页招投标保底条数：有足够候选时保证最小数量"""
+    if min_count <= 0:
+        return selected
+
+    bidding_selected = [a for a in selected if a.skill_name == "招投标"]
+    if len(bidding_selected) >= min_count:
+        return selected
+
+    selected_uids = {a.uid for a in selected}
+    bidding_candidates = [a for a in pool if a.skill_name == "招投标" and a.uid not in selected_uids]
+    bidding_candidates.sort(key=score_article, reverse=True)
+
+    need = min_count - len(bidding_selected)
+    additions = bidding_candidates[:need]
+    if not additions:
+        return selected
+
+    non_bidding = [a for a in selected if a.skill_name != "招投标"]
+    non_bidding.sort(key=score_article)
+    replace_n = min(len(additions), len(non_bidding))
+    to_remove = {a.uid for a in non_bidding[:replace_n]}
+
+    replaced = [a for a in selected if a.uid not in to_remove] + additions[:replace_n]
+    replaced.sort(key=lambda a: a.published_ts, reverse=True)
+    return replaced
+
+
 # ===== 主入口 =====
 
 async def fetch_all_news() -> list[Article]:
@@ -391,6 +555,21 @@ async def fetch_all_news() -> list[Article]:
     all_articles = deduplicate(all_articles)
     logger.info(f"去重后 {len(all_articles)} 条")
 
-    selected = select_articles(list(all_articles), MAX_ARTICLES)
-    logger.info(f"最终精选 {len(selected)} 条")
+    for article in all_articles:
+        article.demand_signal_score = _calc_demand_signal_score(article)
+        article.is_potential_warehouse_demand = article.demand_signal_score >= 0.8
+
+    national_pool = [a for a in all_articles if (a.region_scope or "national") != "local"]
+    local_pool = [a for a in all_articles if (a.region_scope or "national") == "local"]
+
+    selected_national = select_articles(list(national_pool), MAX_ARTICLES)
+    selected_national = _ensure_wechat_quota(selected_national, national_pool, NATIONAL_WECHAT_MIN_COUNT)
+    selected_national = _ensure_bidding_quota(selected_national, national_pool, NATIONAL_BIDDING_MIN_COUNT)
+    selected_local = select_articles(list(local_pool), MAX_ARTICLES_LOCAL)
+    selected = selected_national + selected_local
+    selected.sort(key=lambda a: a.published_ts, reverse=True)
+
+    logger.info(
+        f"最终精选 {len(selected)} 条（国内 {len(selected_national)} / 本地 {len(selected_local)}）"
+    )
     return selected
