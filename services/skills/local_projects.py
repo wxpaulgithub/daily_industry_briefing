@@ -50,7 +50,8 @@ class LocalProjectSkill(NewsSkill):
             )
             data = resp.json()
 
-            for item in data.get("data", []):
+            items = data.get("data") or []
+            for item in items:
                 if not isinstance(item, dict):
                     continue
                 title = clean_title(item.get("title", "").strip())

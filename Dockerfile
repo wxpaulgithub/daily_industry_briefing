@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -6,10 +6,10 @@ WORKDIR /app
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
     sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
 
-# 构建参数：可按需覆盖（彻底去除境外 pip 源）
+# 构建参数：可按需覆盖
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 ARG PIP_EXTRA_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
-ARG PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
+ARG PLAYWRIGHT_DOWNLOAD_HOST=
 
 # 下载加速配置
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}

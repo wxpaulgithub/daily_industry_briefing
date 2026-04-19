@@ -115,7 +115,7 @@ class WeChatRssSkill(NewsSkill):
                 if not title or not url:
                     continue
                 published_ts, published = _extract_published(entry)
-                image_url = ""
+                image_url = _extract_image(entry, summary_html)
                 articles.append(
                     Article(
                         title=title,
@@ -147,10 +147,23 @@ class WeChatRssSkill(NewsSkill):
             logger.info("[公众号RSS] 未配置 rss_url，跳过")
             return []
 
+        local_source_count = sum(1 for src in source_list if "local" in getattr(src, "scopes", []))
+        wechat_source_count = sum(1 for src in source_list if "wechat" in getattr(src, "scopes", []))
+        logger.info(
+            f"[公众号RSS] 来源诊断: total_sources={len(source_list)}, "
+            f"local_sources={local_source_count}, wechat_sources={wechat_source_count}"
+        )
+
         tasks = [self._fetch_single_source(src, client) for src in source_list]
         results = await asyncio.gather(*tasks)
         for batch in results:
             articles.extend(batch)
 
+        local_article_count = sum(1 for a in articles if (a.region_scope or "").strip().lower() == "local")
+        wechat_article_count = sum(1 for a in articles if (a.region_scope or "").strip().lower() == "wechat")
+        logger.info(
+            f"[公众号RSS] 文章诊断: total_articles={len(articles)}, "
+            f"local_articles={local_article_count}, wechat_articles={wechat_article_count}"
+        )
         logger.info(f"[公众号RSS] 采集完成，获取 {len(articles)} 条原始资讯")
         return articles

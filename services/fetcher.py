@@ -412,6 +412,49 @@ def _passes_local_fallback(article: Article) -> bool:
     return intent_hits >= 1 and industry_hits >= 1
 
 
+def _passes_local_prefiltered(article: Article) -> bool:
+    """
+    对“本地项目”和本地白名单公众号做温和准入。
+    这些来源本身已经是定向检索或定向订阅，不需要再套过严的双重门槛。
+    但仍要求至少有“项目意图”或“工业场景”其一命中，避免放进纯民生信息。
+    """
+    text = (article.title + " " + article.summary).lower()
+    intent_hits = _count_hits(text, LOCAL_INTENT_KEYWORDS)
+    industry_hits = _count_hits(text, LOCAL_INDUSTRY_KEYWORDS)
+
+    if article.skill_name == "本地项目":
+        return intent_hits >= 1 or industry_hits >= 1
+
+    if _is_local_whitelist_source(article):
+        return (
+            intent_hits >= 1
+            or industry_hits >= 2
+            or (_has_vendor_priority_hit(article) and industry_hits >= 1)
+        )
+
+    return False
+
+
+def _is_local_fallback_candidate(article: Article) -> bool:
+    """
+    本地页最终为空时的兜底候选。
+    这里允许比严格精选稍微放宽，但仍然要求：
+    1. 已经属于本地池
+    2. 通过本地硬排除
+    3. 命中区域词
+    4. 至少 1 个项目意图词
+    5. 至少 1 个工业场景词
+    """
+    if _is_local_excluded(article):
+        return False
+    if not _is_local_region_hit(article):
+        return False
+    text = (article.title + " " + article.summary).lower()
+    intent_hits = _count_hits(text, LOCAL_INTENT_KEYWORDS)
+    industry_hits = _count_hits(text, LOCAL_INDUSTRY_KEYWORDS)
+    return intent_hits >= 1 and industry_hits >= 1
+
+
 def _count_hits(text: str, keywords: list[str]) -> int:
     t = (text or "").lower()
     return sum(1 for kw in keywords if kw and kw.lower() in t)
@@ -430,6 +473,39 @@ def _calc_demand_signal_score(article: Article) -> float:
     if any(kw.lower() in text for kw in LOCAL_REGION_KEYWORDS):
         score += 0.2
     return min(score, 1.2)
+
+
+def _article_diag_summary(articles: list[Article]) -> str:
+    """生成统一的文章诊断摘要，便于定位分流/标签问题"""
+    if not articles:
+        return "total=0"
+
+    region_counts: dict[str, int] = {}
+    skill_counts: dict[str, int] = {}
+    wechat_counts: dict[str, int] = {}
+
+    for a in articles:
+        region = (a.region_scope or "national").strip().lower() or "national"
+        skill = (a.skill_name or "unknown").strip() or "unknown"
+        wk = (a.wechat_category or "").strip().lower()
+
+        region_counts[region] = region_counts.get(region, 0) + 1
+        skill_counts[skill] = skill_counts.get(skill, 0) + 1
+        if wk:
+            wechat_counts[wk] = wechat_counts.get(wk, 0) + 1
+
+    region_text = ", ".join(f"{k}:{v}" for k, v in sorted(region_counts.items()))
+    skill_text = ", ".join(
+        f"{k}:{v}" for k, v in sorted(skill_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:6]
+    )
+    wechat_text = ", ".join(f"{k}:{v}" for k, v in sorted(wechat_counts.items()))
+
+    parts = [f"total={len(articles)}", f"region=[{region_text}]"]
+    if wechat_text:
+        parts.append(f"wechat_category=[{wechat_text}]")
+    if skill_text:
+        parts.append(f"skill_top=[{skill_text}]")
+    return ", ".join(parts)
 
 
 def filter_relevant(articles: list[Article]) -> list[Article]:
@@ -455,7 +531,11 @@ def filter_relevant(articles: list[Article]) -> list[Article]:
                 continue
             if not _is_local_region_hit(article):
                 continue
-            if not (_passes_local_strict(article) or _passes_local_fallback(article)):
+            if not (
+                _passes_local_strict(article)
+                or _passes_local_fallback(article)
+                or _passes_local_prefiltered(article)
+            ):
                 continue
 
         if article.skill_name in SKILLS_USE_PRE_FILTER:
@@ -721,12 +801,15 @@ async def fetch_all_news() -> list[Article]:
         logger.info(f"Skill 执行模式统计: {mode_counter}")
 
     logger.info(f"所有 Skill 采集完成，共 {len(all_articles)} 条")
+    logger.info(f"[全量刷新] 原始诊断: {_article_diag_summary(all_articles)}")
 
     all_articles = filter_relevant(all_articles)
     logger.info(f"相关性过滤后 {len(all_articles)} 条")
+    logger.info(f"[全量刷新] 过滤后诊断: {_article_diag_summary(all_articles)}")
 
     all_articles = deduplicate(all_articles)
     logger.info(f"去重后 {len(all_articles)} 条")
+    logger.info(f"[全量刷新] 去重后诊断: {_article_diag_summary(all_articles)}")
 
     for article in all_articles:
         article.demand_signal_score = _calc_demand_signal_score(article)
@@ -815,7 +898,34 @@ def _select_by_scope(articles: list[Article], scope: str) -> list[Article]:
                 )
             )
         ]
-        return select_articles(pool, MAX_ARTICLES_LOCAL)
+        rss_local_candidates = [a for a in pool if a.skill_name == "公众号RSS"]
+        selected = select_articles(pool, MAX_ARTICLES_LOCAL)
+        if selected:
+            return selected
+
+        # 本地页兜底：
+        # 若最终精选为 0，则直接从“已经进入本地池”的文章中补最近的 2-3 篇。
+        # pool 本身已经经过了本地相关性过滤，因此这里不再做第三次判定，
+        # 只负责在时效门槛过严时避免页面空白。
+        fallback_candidates = list(pool)
+        logger.info(
+            "[局部刷新/local] 本地精选诊断: "
+            f"pool={len(pool)}, "
+            f"rss_local={len(rss_local_candidates)}, "
+            f"fallback_candidates={len(fallback_candidates)}"
+        )
+        fallback_candidates.sort(
+            key=lambda a: (
+                1 if a.skill_name == "本地项目" else 0,
+                a.published_ts if a.published_ts > 0 else 0.0,
+                score_article(a),
+            ),
+            reverse=True,
+        )
+        fallback_selected = fallback_candidates[:3]
+        if fallback_selected:
+            logger.info(f"[局部刷新/local] 触发兜底补入 {len(fallback_selected)} 条最近本地公众号文章")
+        return fallback_selected
 
     pool = [
         a for a in articles
@@ -853,14 +963,18 @@ async def fetch_news_by_scope(scope: str) -> list[Article]:
         for skill_name, articles, mode, _ in results:
             mode_counter[mode] = mode_counter.get(mode, 0) + 1
             logger.debug(f"[局部刷新/{scope}] {skill_name}: mode={mode}, count={len(articles)}")
+            logger.info(f"[局部刷新/{scope}] Skill 结果 [{skill_name}]: {_article_diag_summary(articles)}")
             all_articles.extend(articles)
         logger.info(f"[局部刷新/{scope}] Skill 执行模式统计: {mode_counter}")
 
     logger.info(f"[局部刷新/{scope}] 原始汇总 {len(all_articles)} 条")
+    logger.info(f"[局部刷新/{scope}] 原始诊断: {_article_diag_summary(all_articles)}")
     all_articles = filter_relevant(all_articles)
     logger.info(f"[局部刷新/{scope}] 相关性过滤后 {len(all_articles)} 条")
+    logger.info(f"[局部刷新/{scope}] 过滤后诊断: {_article_diag_summary(all_articles)}")
     all_articles = deduplicate(all_articles)
     logger.info(f"[局部刷新/{scope}] 去重后 {len(all_articles)} 条")
+    logger.info(f"[局部刷新/{scope}] 去重后诊断: {_article_diag_summary(all_articles)}")
 
     for article in all_articles:
         article.demand_signal_score = _calc_demand_signal_score(article)
