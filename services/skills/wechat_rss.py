@@ -83,13 +83,60 @@ class WeChatRssSkill(NewsSkill):
     async def fetch(self, client: httpx.AsyncClient, keyword: str, count: int = 10) -> list[Article]:
         return []
 
-    async def fetch_all(self, client: httpx.AsyncClient) -> list[Article]:
+    async def _fetch_single_source(self, src: object, client: httpx.AsyncClient) -> list[Article]:
         articles: list[Article] = []
-        # 同时读取行业与本地 RSS 源，按 scopes 标注分类，避免页面串流
-        # 这样配置可清晰拆分为：
-        # - 本地号: scopes=["local"]
-        # - 行业号: scopes=["wechat"]
-        # - 特殊双投放: scopes=["local","wechat"]（不推荐常用）
+        feed_url = (getattr(src, "rss_url", "") or "").strip()
+        if not feed_url:
+            return articles
+        try:
+            resp = await client.get(
+                feed_url,
+                headers={
+                    "Accept": "application/rss+xml, application/xml, text/xml, text/html",
+                    "Referer": feed_url,
+                },
+                timeout=30.0,
+            )
+            feed = feedparser.parse(resp.text or "")
+            entries = feed.entries or []
+            if not entries:
+                return articles
+
+            scopes = getattr(src, "scopes", [])
+            is_local_source = "local" in scopes
+            wechat_category = "local" if is_local_source else "industry"
+            article_scope = "local" if is_local_source else self.region_scope
+
+            for entry in entries[:20]:
+                title = clean_title(str(entry.get("title", "")).strip())
+                url = str(entry.get("link", "")).strip()
+                summary_html = str(entry.get("summary", "") or entry.get("description", "")).strip()
+                summary = normalize_summary(_strip_html(unescape(summary_html)))
+                if not title or not url:
+                    continue
+                published_ts, published = _extract_published(entry)
+                image_url = ""
+                articles.append(
+                    Article(
+                        title=title,
+                        url=url,
+                        summary=summary,
+                        source_name=getattr(src, "name", ""),
+                        image_url=image_url,
+                        published=published,
+                        published_ts=published_ts,
+                        skill_name=self.name,
+                        region_scope=article_scope,
+                        wechat_category=wechat_category,
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"[公众号RSS] 抓取失败 [{getattr(src, 'name', '')}] {feed_url}: {e}")
+        return articles
+
+    async def fetch_all(self, client: httpx.AsyncClient) -> list[Article]:
+        import asyncio
+        articles: list[Article] = []
         source_map: dict[str, object] = {}
         for scope in ("wechat", "local"):
             for src in get_scope_rss_sources(scope):
@@ -100,54 +147,10 @@ class WeChatRssSkill(NewsSkill):
             logger.info("[公众号RSS] 未配置 rss_url，跳过")
             return []
 
-        for src in source_list:
-            feed_url = (src.rss_url or "").strip()
-            if not feed_url:
-                continue
-            try:
-                resp = await client.get(
-                    feed_url,
-                    headers={
-                        "Accept": "application/rss+xml, application/xml, text/xml, text/html",
-                        "Referer": feed_url,
-                    },
-                    timeout=30.0,
-                )
-                feed = feedparser.parse(resp.text or "")
-                entries = feed.entries or []
-                if not entries:
-                    continue
-
-                # 账号若包含 local 作用域，则归为“本地公众号”；否则归为“行业公众号”
-                wechat_category = "local" if "local" in src.scopes else "industry"
-
-                for entry in entries[:20]:
-                    title = clean_title(str(entry.get("title", "")).strip())
-                    url = str(entry.get("link", "")).strip()
-                    summary_html = str(entry.get("summary", "") or entry.get("description", "")).strip()
-                    summary = normalize_summary(_strip_html(unescape(summary_html)))
-                    if not title or not url:
-                        continue
-                    published_ts, published = _extract_published(entry)
-                    # 微信公众号图片常出现防盗链占位图（“未经允许不可引用”），
-                    # 为避免页面展示错误封面，这里统一不使用远程图片。
-                    image_url = ""
-                    articles.append(
-                        Article(
-                            title=title,
-                            url=url,
-                            summary=summary,
-                            source_name=src.name,
-                            image_url=image_url,
-                            published=published,
-                            published_ts=published_ts,
-                            skill_name=self.name,
-                            region_scope=self.region_scope,
-                            wechat_category=wechat_category,
-                        )
-                    )
-            except Exception as e:
-                logger.warning(f"[公众号RSS] 抓取失败 [{src.name}] {feed_url}: {e}")
+        tasks = [self._fetch_single_source(src, client) for src in source_list]
+        results = await asyncio.gather(*tasks)
+        for batch in results:
+            articles.extend(batch)
 
         logger.info(f"[公众号RSS] 采集完成，获取 {len(articles)} 条原始资讯")
         return articles

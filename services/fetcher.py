@@ -387,6 +387,31 @@ def _is_local_whitelist_source(article: Article) -> bool:
     return source_match_scope(article.source_name, "local")
 
 
+def _passes_local_strict(article: Article) -> bool:
+    """本地内容严格准入：区域 + 项目意图 + 至少两个工业场景词"""
+    text = (article.title + " " + article.summary).lower()
+    intent_hits = _count_hits(text, LOCAL_INTENT_KEYWORDS)
+    industry_hits = _count_hits(text, LOCAL_INDUSTRY_KEYWORDS)
+    return intent_hits >= 1 and industry_hits >= 2
+
+
+def _passes_local_fallback(article: Article) -> bool:
+    """
+    本地内容温和兜底：
+    仅对白名单来源放宽，避免最后一条都不剩。
+    规则仍要求：
+    1. 已命中区域词
+    2. 已通过硬排除
+    3. 必须同时具备项目意图和工业场景各至少 1 个
+    """
+    if not _is_local_whitelist_source(article):
+        return False
+    text = (article.title + " " + article.summary).lower()
+    intent_hits = _count_hits(text, LOCAL_INTENT_KEYWORDS)
+    industry_hits = _count_hits(text, LOCAL_INDUSTRY_KEYWORDS)
+    return intent_hits >= 1 and industry_hits >= 1
+
+
 def _count_hits(text: str, keywords: list[str]) -> int:
     t = (text or "").lower()
     return sum(1 for kw in keywords if kw and kw.lower() in t)
@@ -430,14 +455,7 @@ def filter_relevant(articles: list[Article]) -> list[Article]:
                 continue
             if not _is_local_region_hit(article):
                 continue
-            text = (article.title + " " + article.summary).lower()
-            intent_hits = _count_hits(text, LOCAL_INTENT_KEYWORDS)
-            industry_hits = _count_hits(text, LOCAL_INDUSTRY_KEYWORDS)
-            if intent_hits < 1:
-                continue
-            # 本地页进一步收紧：
-            # - 必须命中至少 2 个工业/物流关键词，避免“航班/赛事/民生”类污染
-            if industry_hits < 2:
+            if not (_passes_local_strict(article) or _passes_local_fallback(article)):
                 continue
 
         if article.skill_name in SKILLS_USE_PRE_FILTER:
