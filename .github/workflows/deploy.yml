@@ -26,8 +26,9 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT }}
-          script_stop: true
+          timeout: 60s
           command_timeout: 60m
+          capture_stdout: true
           script: |
             set -euo pipefail
 
@@ -49,5 +50,9 @@ jobs:
             echo ">>> 步骤 2/2: 构建并重启 Docker 容器..."
             docker compose down
             docker compose up -d --build --force-recreate --remove-orphans
+            docker compose ps
+
+            echo ">>> 健康检查: 验证服务可访问..."
+            curl -fsS http://127.0.0.1:8088/api/status >/dev/null
 
             echo "========== 部署完成 =========="

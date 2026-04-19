@@ -128,6 +128,8 @@ def _get_referer_for_url(url: str) -> str:
 def _ext_from_content_type(content_type: str) -> str:
     """根据 Content-Type 推断文件扩展名"""
     ct = content_type.lower()
+    if "icon" in ct or "x-icon" in ct:
+        return ".ico"
     if "png" in ct:
         return ".png"
     if "gif" in ct:
@@ -152,6 +154,7 @@ def save_articles_json(articles: list) -> Path:
             "image_url": a.image_url,
             "published": a.published,
             "published_ts": a.published_ts,
+            "fetched_at": getattr(a, "fetched_at", 0.0),
             "content_quality": a.content_quality,
             "skill_name": a.skill_name,
             "region_scope": getattr(a, "region_scope", "national"),

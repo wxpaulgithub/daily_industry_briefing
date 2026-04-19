@@ -25,16 +25,36 @@ from config import (
     LOCAL_REGION_KEYWORDS,
     LOCAL_WECHAT_WHITELIST,
     MAX_ARTICLES,
+    MAX_ARTICLES_DISCOVER,
     MAX_ARTICLES_LOCAL,
     MAX_ARTICLE_AGE_DAYS,
     NATIONAL_BIDDING_MIN_COUNT,
     NATIONAL_WECHAT_MIN_COUNT,
     REQUEST_TIMEOUT,
+    SKILL_CACHE_TTL_SECONDS,
+    SKILL_FAILURE_COOLDOWN_SECONDS,
+    SKILL_FAILURE_THRESHOLD,
+    SKILL_FETCH_TIMEOUT_SECONDS,
     SUMMARY_MAX_LENGTH,
     USER_AGENT,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SkillRuntimeState:
+    """单个 Skill 的运行态（缓存、失败计数、冷却）"""
+    cache_articles: list["Article"] = field(default_factory=list)
+    cache_at: float = 0.0
+    failure_count: int = 0
+    cooldown_until: float = 0.0
+    last_error: str = ""
+    last_status: str = "init"
+    last_duration: float = 0.0
+
+
+_SKILL_RUNTIME: dict[str, SkillRuntimeState] = {}
 
 
 # ===== 数据模型 =====
@@ -59,6 +79,83 @@ class Article:
     @property
     def uid(self) -> str:
         return hashlib.md5(self.url.encode()).hexdigest()[:12]
+
+
+def _clone_articles(articles: list["Article"]) -> list["Article"]:
+    """缓存/降级回放时复制对象，避免后续流程污染原缓存"""
+    return [Article(**a.__dict__) for a in articles]
+
+
+def _is_cache_fresh(state: SkillRuntimeState, now_ts: float) -> bool:
+    return bool(state.cache_articles) and (now_ts - state.cache_at) <= SKILL_CACHE_TTL_SECONDS
+
+
+async def _run_skill_with_guard(skill: "NewsSkill", client: httpx.AsyncClient) -> tuple[str, list["Article"], str, float]:
+    """执行 Skill，并提供超时、缓存命中、失败降级与冷却保护"""
+    skill_name = (getattr(skill, "name", "") or skill.__class__.__name__).strip() or skill.__class__.__name__
+    state = _SKILL_RUNTIME.setdefault(skill_name, SkillRuntimeState())
+    now_ts = time.time()
+
+    # 冷却窗口：优先用缓存兜底
+    if state.cooldown_until > now_ts:
+        remain = max(int(state.cooldown_until - now_ts), 0)
+        if _is_cache_fresh(state, now_ts):
+            logger.warning(f"[{skill_name}] 处于冷却期（剩余 {remain}s），使用缓存结果")
+            state.last_status = "cooldown_cache"
+            return skill_name, _clone_articles(state.cache_articles), "cooldown_cache", 0.0
+        logger.warning(f"[{skill_name}] 处于冷却期（剩余 {remain}s），且无可用缓存，跳过本轮")
+        state.last_status = "cooldown_skip"
+        return skill_name, [], "cooldown_skip", 0.0
+
+    # 新鲜缓存直接返回，减少重复抓取
+    if _is_cache_fresh(state, now_ts):
+        age = int(now_ts - state.cache_at)
+        logger.info(f"[{skill_name}] 命中缓存（{age}s 前），跳过远程抓取")
+        state.last_status = "cache"
+        return skill_name, _clone_articles(state.cache_articles), "cache", 0.0
+
+    start = time.time()
+    try:
+        articles = await asyncio.wait_for(skill.fetch_all(client), timeout=SKILL_FETCH_TIMEOUT_SECONDS)
+        duration = time.time() - start
+        state.failure_count = 0
+        state.cooldown_until = 0.0
+        state.last_error = ""
+        state.last_status = "live"
+        state.last_duration = duration
+        state.cache_articles = _clone_articles(articles)
+        state.cache_at = time.time()
+        logger.info(f"[{skill_name}] 实时抓取完成，{len(articles)} 条，耗时 {duration:.2f}s")
+        return skill_name, articles, "live", duration
+    except asyncio.TimeoutError:
+        duration = time.time() - start
+        state.failure_count += 1
+        state.last_error = f"Timeout>{SKILL_FETCH_TIMEOUT_SECONDS}s"
+        state.last_status = "timeout"
+        state.last_duration = duration
+    except Exception as e:
+        duration = time.time() - start
+        state.failure_count += 1
+        state.last_error = repr(e)
+        state.last_status = "error"
+        state.last_duration = duration
+
+    # 失败后达到阈值，进入冷却
+    if state.failure_count >= SKILL_FAILURE_THRESHOLD:
+        state.cooldown_until = time.time() + SKILL_FAILURE_COOLDOWN_SECONDS
+        logger.warning(
+            f"[{skill_name}] 连续失败 {state.failure_count} 次，进入冷却 {SKILL_FAILURE_COOLDOWN_SECONDS}s"
+        )
+
+    # 失败兜底：尽量使用缓存
+    fallback_now = time.time()
+    if _is_cache_fresh(state, fallback_now):
+        logger.warning(f"[{skill_name}] 抓取失败，降级使用缓存: {state.last_error}")
+        state.last_status = "degraded_cache"
+        return skill_name, _clone_articles(state.cache_articles), "degraded_cache", state.last_duration
+
+    logger.warning(f"[{skill_name}] 抓取失败且无缓存可用: {state.last_error}")
+    return skill_name, [], "failed", state.last_duration
 
 
 # ===== Skill 基类 =====
@@ -163,6 +260,8 @@ SKILLS_USE_PRE_FILTER = {
     "招投标",
     "行业媒体",
     "展会协会",
+    "知乎发现",
+    "B站发现",
 }
 
 VENDOR_PRIORITY_KEYWORDS = [
@@ -312,15 +411,16 @@ def filter_relevant(articles: list[Article]) -> list[Article]:
     """
     relevant = []
     for article in articles:
+        scope = (article.region_scope or "national")
         full_text = (article.title + " " + article.summary + " " + article.source_name).lower()
         # 所有来源统一排除无关内容
         if any(kw.lower() in full_text for kw in EXCLUDE_KEYWORDS):
             continue
-        # 过滤纯机器人内容，保留仓储/工业场景相关机器人资讯
-        if _is_pure_robot_topic(article):
+        # 过滤纯机器人内容（发现页放宽，保留更多探索结果）
+        if scope != "discover" and _is_pure_robot_topic(article):
             continue
         # 本地范围：三条件准入 + 本地硬排除
-        if (article.region_scope or "national") == "local":
+        if scope == "local":
             if _is_local_excluded(article):
                 continue
             if not _is_local_region_hit(article):
@@ -528,6 +628,77 @@ def _ensure_bidding_quota(selected: list[Article], pool: list[Article], min_coun
     return replaced
 
 
+def _is_discover_placeholder(article: Article) -> bool:
+    """识别发现页占位条目（仅在无真实内容时兜底展示）"""
+    title = (article.title or "").strip()
+    summary = (article.summary or "").strip()
+    return (
+        title.startswith("知乎搜索：")
+        or title.startswith("B站搜索：")
+        or "未解析到结构化条目" in summary
+    )
+
+
+def _source_key(article: Article) -> str:
+    """将发现页来源归一到 zhihu/bilibili/other"""
+    src = f"{article.skill_name} {article.source_name}".lower()
+    if "知乎" in src or "zhihu" in src:
+        return "zhihu"
+    if "b站" in src or "bilibili" in src:
+        return "bilibili"
+    return "other"
+
+
+def _select_discover_articles(articles: list[Article], count: int) -> list[Article]:
+    """
+    发现页专用选取策略：
+    1) 先选真实条目（排除占位）
+    2) 尽量保证知乎/B站都有内容
+    3) 不足时再补占位兜底
+    """
+    if count <= 0:
+        return []
+
+    real_items = [a for a in articles if not _is_discover_placeholder(a)]
+    placeholder_items = [a for a in articles if _is_discover_placeholder(a)]
+
+    # 先从真实内容中按通用算法选
+    selected_real = select_articles(list(real_items), count)
+
+    # 基础双源配额（有候选时尽量保证各 3 条）
+    min_per_source = 3
+    selected_uids = {a.uid for a in selected_real}
+    for source in ("zhihu", "bilibili"):
+        current = [a for a in selected_real if _source_key(a) == source]
+        if len(current) >= min_per_source:
+            continue
+        need = min_per_source - len(current)
+        candidates = [a for a in real_items if _source_key(a) == source and a.uid not in selected_uids]
+        candidates.sort(key=score_article, reverse=True)
+        additions = candidates[:need]
+        for a in additions:
+            if len(selected_real) >= count:
+                break
+            selected_real.append(a)
+            selected_uids.add(a.uid)
+
+    # 长度裁剪（避免配额补充导致超出）
+    if len(selected_real) > count:
+        selected_real.sort(key=lambda a: score_article(a), reverse=True)
+        selected_real = selected_real[:count]
+        selected_uids = {a.uid for a in selected_real}
+
+    # 不足时再补占位（占位永远后置）
+    if len(selected_real) < count:
+        placeholders = [a for a in placeholder_items if a.uid not in selected_uids]
+        placeholders.sort(key=lambda a: score_article(a), reverse=True)
+        selected_real.extend(placeholders[: max(0, count - len(selected_real))])
+
+    # 发现页以质量分优先，弱化发布时间影响
+    selected_real.sort(key=lambda a: score_article(a), reverse=True)
+    return selected_real[:count]
+
+
 # ===== 主入口 =====
 
 async def fetch_all_news() -> list[Article]:
@@ -541,11 +712,15 @@ async def fetch_all_news() -> list[Article]:
         timeout=REQUEST_TIMEOUT,
         follow_redirects=True,
     ) as client:
-        # 并发运行所有 Skill
-        tasks = [skill.fetch_all(client) for skill in SKILLS]
+        # 并发运行所有 Skill（含超时、缓存、冷却、降级保护）
+        tasks = [_run_skill_with_guard(skill, client) for skill in SKILLS]
         results = await asyncio.gather(*tasks)
-        for articles in results:
+        mode_counter: dict[str, int] = {}
+        for skill_name, articles, mode, _ in results:
+            mode_counter[mode] = mode_counter.get(mode, 0) + 1
+            logger.debug(f"[采集汇总] {skill_name}: mode={mode}, count={len(articles)}")
             all_articles.extend(articles)
+        logger.info(f"Skill 执行模式统计: {mode_counter}")
 
     logger.info(f"所有 Skill 采集完成，共 {len(all_articles)} 条")
 
@@ -561,15 +736,105 @@ async def fetch_all_news() -> list[Article]:
 
     national_pool = [a for a in all_articles if (a.region_scope or "national") != "local"]
     local_pool = [a for a in all_articles if (a.region_scope or "national") == "local"]
+    discover_pool = [a for a in all_articles if (a.region_scope or "national") == "discover"]
+    national_pool = [a for a in national_pool if (a.region_scope or "national") != "discover"]
 
     selected_national = select_articles(list(national_pool), MAX_ARTICLES)
     selected_national = _ensure_wechat_quota(selected_national, national_pool, NATIONAL_WECHAT_MIN_COUNT)
     selected_national = _ensure_bidding_quota(selected_national, national_pool, NATIONAL_BIDDING_MIN_COUNT)
     selected_local = select_articles(list(local_pool), MAX_ARTICLES_LOCAL)
-    selected = selected_national + selected_local
+    selected_discover = _select_discover_articles(list(discover_pool), MAX_ARTICLES_DISCOVER)
+    selected = selected_national + selected_local + selected_discover
     selected.sort(key=lambda a: a.published_ts, reverse=True)
 
+    # 统一打上“本轮抓取时间”，确保前端手动刷新可在完成后自动重载
+    fetched_mark = time.time()
+    for article in selected:
+        article.fetched_at = fetched_mark
+
     logger.info(
-        f"最终精选 {len(selected)} 条（国内 {len(selected_national)} / 本地 {len(selected_local)}）"
+        "最终精选 "
+        f"{len(selected)} 条（国内 {len(selected_national)} / 本地 {len(selected_local)} / 发现 {len(selected_discover)}）"
     )
+    return selected
+
+
+def _skill_matches_scope(skill: "NewsSkill", scope: str) -> bool:
+    """判断 Skill 是否属于目标范围"""
+    region = (getattr(skill, "region_scope", "national") or "national").strip().lower()
+    if scope == "discover":
+        return region == "discover"
+    if scope == "local":
+        return region == "local"
+    # national: 仅国内主资讯，不包含 local/discover
+    return region not in ("local", "discover")
+
+
+def _select_by_scope(articles: list[Article], scope: str) -> list[Article]:
+    """从已清洗后的文章中按范围精选"""
+    if scope == "discover":
+        pool = [a for a in articles if (a.region_scope or "national") == "discover"]
+        return _select_discover_articles(pool, MAX_ARTICLES_DISCOVER)
+    if scope == "local":
+        pool = [a for a in articles if (a.region_scope or "national") == "local"]
+        return select_articles(pool, MAX_ARTICLES_LOCAL)
+
+    pool = [
+        a for a in articles
+        if (a.region_scope or "national") not in ("local", "discover")
+    ]
+    selected = select_articles(pool, MAX_ARTICLES)
+    selected = _ensure_wechat_quota(selected, pool, NATIONAL_WECHAT_MIN_COUNT)
+    selected = _ensure_bidding_quota(selected, pool, NATIONAL_BIDDING_MIN_COUNT)
+    return selected
+
+
+async def fetch_news_by_scope(scope: str) -> list[Article]:
+    """
+    按 scope 局部抓取资讯（仅运行对应 Skill 集合）
+    scope: national / local / discover
+    """
+    scope = (scope or "national").strip().lower()
+    if scope not in ("national", "local", "discover"):
+        scope = "national"
+
+    from services.skills import SKILLS  # 延迟导入，避免循环依赖
+    target_skills = [s for s in SKILLS if _skill_matches_scope(s, scope)]
+    if not target_skills:
+        logger.warning(f"[局部刷新] scope={scope} 无可用 Skill")
+        return []
+
+    all_articles: list[Article] = []
+    async with httpx.AsyncClient(
+        headers={"User-Agent": USER_AGENT},
+        timeout=REQUEST_TIMEOUT,
+        follow_redirects=True,
+    ) as client:
+        tasks = [_run_skill_with_guard(skill, client) for skill in target_skills]
+        results = await asyncio.gather(*tasks)
+        mode_counter: dict[str, int] = {}
+        for skill_name, articles, mode, _ in results:
+            mode_counter[mode] = mode_counter.get(mode, 0) + 1
+            logger.debug(f"[局部刷新/{scope}] {skill_name}: mode={mode}, count={len(articles)}")
+            all_articles.extend(articles)
+        logger.info(f"[局部刷新/{scope}] Skill 执行模式统计: {mode_counter}")
+
+    logger.info(f"[局部刷新/{scope}] 原始汇总 {len(all_articles)} 条")
+    all_articles = filter_relevant(all_articles)
+    logger.info(f"[局部刷新/{scope}] 相关性过滤后 {len(all_articles)} 条")
+    all_articles = deduplicate(all_articles)
+    logger.info(f"[局部刷新/{scope}] 去重后 {len(all_articles)} 条")
+
+    for article in all_articles:
+        article.demand_signal_score = _calc_demand_signal_score(article)
+        article.is_potential_warehouse_demand = article.demand_signal_score >= 0.8
+
+    selected = _select_by_scope(all_articles, scope)
+
+    # 统一写入本轮抓取时间，前端用于判断是否有新数据
+    fetched_mark = time.time()
+    for article in selected:
+        article.fetched_at = fetched_mark
+
+    logger.info(f"[局部刷新/{scope}] 最终精选 {len(selected)} 条")
     return selected

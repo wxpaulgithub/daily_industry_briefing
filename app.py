@@ -14,7 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE, DEFAULT_SCOPE
-from services.fetcher import fetch_all_news, Article
+from services.fetcher import fetch_all_news, fetch_news_by_scope, Article
 from services.generator import render_both, save_articles_json, load_articles_json, render_html
 
 # 日志配置
@@ -27,19 +27,51 @@ logger = logging.getLogger(__name__)
 
 # 全局状态
 _is_fetching = False
+_current_fetch_scope = "all"
 
 
-async def _do_fetch():
-    """执行一次完整的采集+生成流程"""
-    global _is_fetching
+def _article_in_scope(article: Article, scope: str) -> bool:
+    s = (article.region_scope or "national").strip().lower()
+    if scope == "local":
+        return s == "local"
+    if scope == "discover":
+        return s == "discover"
+    return s not in ("local", "discover")
+
+
+def _merge_scope_articles(existing: list[Article], scoped: list[Article], scope: str) -> list[Article]:
+    """用局部抓取结果替换对应 scope，其余 scope 保持不变"""
+    kept = [a for a in existing if not _article_in_scope(a, scope)]
+    merged = kept + scoped
+    merged.sort(key=lambda a: a.published_ts, reverse=True)
+    return merged
+
+
+async def _do_fetch(scope: str | None = None):
+    """执行采集+生成流程；scope 为空表示全量刷新"""
+    global _is_fetching, _current_fetch_scope
     if _is_fetching:
         logger.info("采集已在进行中，跳过")
         return
 
+    normalized_scope = "all"
+    if scope is not None:
+        normalized_scope = _normalize_scope(scope)
+
     _is_fetching = True
+    _current_fetch_scope = normalized_scope
     try:
-        logger.info("开始采集资讯...")
-        articles = await fetch_all_news()
+        if normalized_scope == "all":
+            logger.info("开始全量采集资讯...")
+            articles = await fetch_all_news()
+        else:
+            logger.info(f"开始局部采集资讯... scope={normalized_scope}")
+            scoped_articles = await fetch_news_by_scope(normalized_scope)
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            existing_data = load_articles_json(date_str)
+            existing_articles = [Article(**d) for d in existing_data] if existing_data else []
+            articles = _merge_scope_articles(existing_articles, scoped_articles, normalized_scope)
+
         if not articles:
             logger.warning("未采集到任何资讯")
             return
@@ -47,11 +79,12 @@ async def _do_fetch():
         # 生成 Web 版和微信公众号版
         render_both(articles)
         save_articles_json(articles)
-        logger.info(f"资讯生成完成: {len(articles)} 条")
+        logger.info(f"资讯生成完成: {len(articles)} 条（scope={normalized_scope}）")
     except Exception as e:
         logger.error(f"采集失败: {e}", exc_info=True)
     finally:
         _is_fetching = False
+        _current_fetch_scope = "all"
 
 
 @asynccontextmanager
@@ -106,7 +139,7 @@ async def index(scope: str = Query(DEFAULT_SCOPE)):
         return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
 
     # 没有今日数据，返回加载页面并触发后台采集
-    asyncio.create_task(_do_fetch())
+    asyncio.create_task(_do_fetch(scope))
     return HTMLResponse(content=_loading_page(scope))
 
 
@@ -142,14 +175,15 @@ async def archive(date_str: str, scope: str = Query(DEFAULT_SCOPE)):
 # ===== API 路由 =====
 
 @app.api_route("/api/refresh", methods=["GET", "POST"])
-async def refresh():
-    """手动触发重新采集（支持 GET 和 POST）"""
+async def refresh(scope: str = Query(DEFAULT_SCOPE)):
+    """手动触发重新采集（支持 GET 和 POST），按 scope 局部刷新"""
     global _is_fetching
     if _is_fetching:
-        return JSONResponse({"status": "already_fetching"})
+        return JSONResponse({"status": "already_fetching", "scope": _current_fetch_scope})
 
-    asyncio.create_task(_do_fetch())
-    return JSONResponse({"status": "started"})
+    normalized_scope = _normalize_scope(scope)
+    asyncio.create_task(_do_fetch(normalized_scope))
+    return JSONResponse({"status": "started", "scope": normalized_scope})
 
 
 @app.get("/api/news/today")
@@ -180,6 +214,7 @@ async def status():
     """服务状态"""
     return JSONResponse({
         "fetching": _is_fetching,
+        "fetch_scope": _current_fetch_scope,
         "schedule": f"{SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}",
         "available_dates": _get_available_dates(),
     })
@@ -202,13 +237,22 @@ def _get_available_dates() -> list[str]:
 
 def _normalize_scope(scope: str) -> str:
     v = (scope or "").strip().lower()
-    return "local" if v == "local" else "national"
+    if v == "local":
+        return "local"
+    if v == "discover":
+        return "discover"
+    return "national"
 
 
 def _filter_articles_by_scope(articles: list[Article], scope: str) -> list[Article]:
     if scope == "local":
         return [a for a in articles if (a.region_scope or "national") == "local"]
-    return [a for a in articles if (a.region_scope or "national") != "local"]
+    if scope == "discover":
+        return [a for a in articles if (a.region_scope or "national") == "discover"]
+    return [
+        a for a in articles
+        if (a.region_scope or "national") not in ("local", "discover")
+    ]
 
 
 def _loading_page(scope: str = "national") -> str:

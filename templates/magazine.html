@@ -309,6 +309,19 @@
       margin-bottom: 24px;
     }
 
+    .thumb-fallback {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.12em;
+      background: linear-gradient(135deg, var(--bg-placeholder), rgba(0, 0, 0, 0.02));
+    }
+
     .featured-image {
       width: 100%;
       height: 100%;
@@ -623,6 +636,7 @@
         <nav class="scope-switcher">
           <a data-scope="national" href="/?scope=national">国内</a>
           <a data-scope="local" href="/?scope=local">本地</a>
+          <a data-scope="discover" href="/?scope=discover">发现</a>
         </nav>
       </div>
       <div class="header-divider"></div>
@@ -634,7 +648,12 @@
       <a href="{{ articles[0].url }}" target="_blank" class="featured-card">
         <div class="featured-image-wrapper">
           {% if articles[0].image_url %}
-          <img class="featured-image" src="{{ articles[0].image_url }}" alt="{{ articles[0].title }}" loading="eager">
+          <img class="featured-image" src="{{ articles[0].image_url }}" alt="{{ articles[0].title }}" loading="eager"
+            onerror="this.onerror=null;this.src='{% if '知乎' in articles[0].source_name %}/static/discover-zhihu.svg{% elif 'B站' in articles[0].source_name %}/static/discover-bilibili.svg{% else %}/static/logo.png{% endif %}';">
+          {% else %}
+          <div class="thumb-fallback">
+            {% if '知乎' in articles[0].source_name %}知乎{% elif 'B站' in articles[0].source_name %}B站{% else %}资讯{% endif %}
+          </div>
           {% endif %}
         </div>
         <div class="featured-content">
@@ -661,7 +680,12 @@
         </div>
         <div class="article-thumb">
           {% if article.image_url %}
-          <img src="{{ article.image_url }}" alt="{{ article.title }}" loading="lazy">
+          <img src="{{ article.image_url }}" alt="{{ article.title }}" loading="lazy"
+            onerror="this.onerror=null;this.src='{% if '知乎' in article.source_name %}/static/discover-zhihu.svg{% elif 'B站' in article.source_name %}/static/discover-bilibili.svg{% else %}/static/logo.png{% endif %}';">
+          {% else %}
+          <div class="thumb-fallback">
+            {% if '知乎' in article.source_name %}知乎{% elif 'B站' in article.source_name %}B站{% else %}资讯{% endif %}
+          </div>
           {% endif %}
         </div>
       </a>
@@ -696,7 +720,8 @@
     // 主题切换：从 localStorage 读取用户偏好，纯前端 CSS 切换
     (function () {
       var params = new URLSearchParams(location.search);
-      var scope = params.get('scope') === 'local' ? 'local' : 'national';
+      var rawScope = params.get('scope');
+      var scope = (rawScope === 'local' || rawScope === 'discover') ? rawScope : 'national';
 
       var saved = localStorage.getItem('theme') || 'notion';
       document.body.className = 'theme-' + saved;
@@ -735,7 +760,8 @@
     function doRefresh(btn) {
       var orig = btn.textContent;
       var params = new URLSearchParams(location.search);
-      var scope = params.get('scope') === 'local' ? 'local' : 'national';
+      var rawScope = params.get('scope');
+      var scope = (rawScope === 'local' || rawScope === 'discover') ? rawScope : 'national';
       var baselineFetchedAt = 0;
       var maxWaitMs = 3 * 60 * 1000; // 最长等待 3 分钟
       var pollMs = 2000;
@@ -788,20 +814,20 @@
             return;
           }
 
-          setBusy(status.fetching ? 'FETCHING...' : '等待写入...');
+          setBusy(status.fetching ? '采集中...' : '等待写入...');
           setTimeout(pollUntilDone, pollMs);
         }).catch(function () {
-          setReady('FAILED. RETRY');
+          setReady('失败，重试');
         });
       }
 
-      setBusy('FETCHING...');
+      setBusy('采集中...');
 
       // 先记录当前数据时间戳，再触发刷新，避免把旧数据误判为新数据
       fetchToday()
         .then(function (today) {
           baselineFetchedAt = getMaxFetchedAt(today);
-          return fetch('/api/refresh', { method: 'POST' });
+          return fetch('/api/refresh?scope=' + scope, { method: 'POST' });
         })
         .then(function () {
           setTimeout(pollUntilDone, 800);

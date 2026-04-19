@@ -3,6 +3,10 @@ services:
     build: .
     ports:
       - "8088:8088"
+    environment:
+      - COOKIE_FILE_PATH=/runtime/cookie.txt
     volumes:
       - ./output:/app/output
+      # 将 cookie 文件放在源码目录上一层（宿主机），避免跟代码发布耦合
+      - ../news_runtime:/runtime
     restart: unless-stopped

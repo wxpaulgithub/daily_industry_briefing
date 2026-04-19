@@ -15,6 +15,8 @@ from services.skills.industry_media import IndustryMediaSkill
 from services.skills.expo_assoc import ExpoAssocSkill
 from services.skills.local_projects import LocalProjectSkill
 from services.skills.local_wechat import LocalWeChatProjectSkill
+from services.skills.zhihu_browser import ZhihuBrowserSkill
+from services.skills.bilibili_discover import BilibiliDiscoverSkill
 
 # ===== 已注册的 Skill 列表 =====
 # 按需添加新的 Skill 实例即可自动生效
@@ -22,6 +24,8 @@ from services.skills.local_wechat import LocalWeChatProjectSkill
 SKILLS = [
     LocalWeChatProjectSkill(),
     LocalProjectSkill(),
+    ZhihuBrowserSkill(),
+    BilibiliDiscoverSkill(),
     ToutiaoSkill(),
     WeChatSkill(),
     PolicySkill(),

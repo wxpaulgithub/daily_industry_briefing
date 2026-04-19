@@ -57,9 +57,7 @@ python app.py
 
 | 文件 | 说明 |
 |------|------|
-| `2026-04-17_notion.html` | Web 版 - 纸主题（默认） |
-| `2026-04-17_apple.html` | Web 版 - 简主题 |
-| `2026-04-17_linear.html` | Web 版 - 深主题 |
+| `2026-04-17.html` | Web 版（主题由前端切换，不再按主题分别生成文件） |
 | `2026-04-17_wechat.html` | 微信公众号版，内联 CSS，可直接复制粘贴到公众号编辑器 |
 | `2026-04-17.json` | 原始数据 JSON，供 API 查询 |
 
@@ -393,7 +391,226 @@ venv\Scripts\python fetch.py
 
 ### Web 方式
 
-服务运行期间，访问 `http://localhost:8088/api/refresh` 触发重新采集。
+服务运行期间，访问以下接口触发刷新（建议按页面范围刷新，速度更快）：
+
+```text
+http://localhost:8088/api/refresh?scope=national   # 只刷新国内
+http://localhost:8088/api/refresh?scope=local      # 只刷新本地
+http://localhost:8088/api/refresh?scope=discover   # 只刷新发现（知乎/B站）
+```
+
+---
+
+## 发现页（知乎/B站）Cookie 与 Playwright 实战
+
+本章节详细说明：
+
+1. 为什么要用 Cookie
+2. `runtime/cookie.txt` 如何配置
+3. 如何手工获取知乎 Cookie
+4. 如何用 Playwright 从本机登录态刷新 Cookie 文件
+5. 常见问题与排查
+
+### 1) 为什么要用 Cookie
+
+“发现”页面中的知乎/B站来源会遇到更严格的风控。  
+尤其知乎，匿名访问时很容易返回 403 或接口异常。  
+因此系统支持读取登录态 Cookie，提高可用性。
+
+注意：
+
+- Cookie 会过期，不是一次配置永久有效。
+- 失效后通常需要人工重新登录一次再导出。
+
+### 2) Cookie 文件位置与格式
+
+文件路径：
+
+```text
+runtime/cookie.txt
+```
+
+文件使用“分节文本”格式（可扩展到多站点）：
+
+```txt
+[zhihu]
+z_c0=...; d_c0=...; _xsrf=...; q_c1=...; ...
+
+[bilibili]
+SESSDATA=...; bili_jct=...; DedeUserID=...; ...
+```
+
+说明：
+
+- 建议先把对应站点的整串 Cookie 全量放入，成功率最高。
+- 不要在同一分节写两条 Cookie 串（会出现重复键，行为不稳定）。
+- 修改 `runtime/cookie.txt` 后无需重启服务，程序会按文件更新时间自动重载。
+
+### 3) 手工获取知乎 Cookie（最直观）
+
+1. 打开 `https://www.zhihu.com/` 并确认已登录。  
+2. 按 `F12` 打开开发者工具，切到 `Network`。  
+3. 勾选 `Preserve log`，然后 `Ctrl+R` 刷新页面。  
+4. 点开任意知乎请求（建议 `api/v4/me` 或同域文档请求）。  
+5. 在 `Request Headers` 找到 `Cookie:` 行。  
+6. 复制冒号后整串内容，粘贴到 `runtime/cookie.txt` 的 `[zhihu]` 下。
+
+### 4) 使用 Playwright 自动刷新 Cookie 文件（手动触发）
+
+脚本文件：
+
+```text
+scripts/refresh_cookie_file_playwright.py
+```
+
+功能：
+
+- 复用本机浏览器登录态（Edge/Chrome 持久化用户目录）
+- 导出站点 Cookie
+- 覆盖写入 `runtime/cookie.txt`
+
+常用命令（Windows）：
+
+```bash
+# 仅刷新知乎
+venv\Scripts\python.exe scripts\refresh_cookie_file_playwright.py --site zhihu --browser msedge
+
+# 同时刷新知乎+B站
+venv\Scripts\python.exe scripts\refresh_cookie_file_playwright.py --site both --browser msedge
+```
+
+可选参数：
+
+```bash
+venv\Scripts\python.exe scripts\refresh_cookie_file_playwright.py ^
+  --site zhihu ^
+  --browser msedge ^
+  --user-data-dir "C:\Users\你的用户名\AppData\Local\Microsoft\Edge\User Data" ^
+  --profile-directory Default
+```
+
+注意事项：
+
+- 执行脚本前建议先关闭同一用户目录下正在运行的浏览器，否则可能启动失败。
+- 脚本是“读取当前登录态并导出”，不是“自动输入账号密码登录”。
+
+### 4.1) Windows 一键：刷新后自动上传服务器
+
+已提供脚本：
+
+```text
+scripts/refresh_and_upload_cookie.ps1
+```
+
+功能流程：
+
+1. 调用 Playwright 脚本刷新本机 `runtime/cookie.txt`
+2. 校验目标站点 Cookie 非空
+3. 使用 `ssh` 在远端创建目录（如不存在）
+4. 使用 `scp` 上传到服务器指定路径
+
+推荐先配置固定参数文件：
+
+```text
+scripts/cookie_upload.config.ps1
+```
+
+示例内容（可直接修改）：
+
+```powershell
+@{
+  ServerHost       = "你的服务器IP或域名"
+  ServerUser       = "root"
+  RemoteCookiePath = "/opt/news_runtime/cookie.txt"
+  ServerPort       = 22
+  SshKeyPath       = "C:\Users\你的用户名\.ssh\id_ed25519"
+  UserDataDir      = ""
+  ProfileDirectory = "Default"
+}
+```
+
+然后使用最简命令（仅知乎）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\refresh_and_upload_cookie.ps1 `
+  -Site zhihu `
+  -Browser msedge
+```
+
+最简命令（知乎+B站）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\refresh_and_upload_cookie.ps1 `
+  -Site both `
+  -Browser msedge
+```
+
+如需临时覆盖配置文件中的某个值，可直接加参数（例如换服务器）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\refresh_and_upload_cookie.ps1 `
+  -Site zhihu `
+  -ServerHost 1.2.3.4
+```
+
+可选参数：
+
+- `-ServerPort 22`
+- `-SshKeyPath C:\Users\你\.ssh\id_rsa`
+- `-UserDataDir ...`
+- `-ProfileDirectory Default`
+- `-Headless`
+
+关于 `ssh` 和 `scp` 的选择：
+
+- 推荐“`ssh + scp` 组合”：
+- `ssh` 负责执行远端命令（本脚本用于 `mkdir -p` 创建目录）。
+- `scp` 负责文件传输（本脚本用于上传 `cookie.txt`）。
+- 这样比只用 `scp` 更稳妥，避免远端目录不存在导致上传失败。
+
+### 5) 验证 Cookie 是否已加载
+
+使用检查脚本：
+
+```bash
+python scripts/read_cookie_file.py
+```
+
+输出示例：
+
+```text
+Cookie 文件读取结果：
+- zhihu: 已配置，长度=889，样例=xxxxx ... xxxxx
+- bilibili: 未配置
+```
+
+运行服务后，若知乎 Cookie 可用，日志会出现类似：
+
+```text
+[知乎发现] 检测到知乎登录态可用（cookie）
+```
+
+### 6) 常见问题
+
+#### Q1: 为什么我手工导出的 Cookie 和脚本导出的不一致？
+
+这是正常现象。Cookie 会随时间、页面、风控状态动态变化。  
+只要当前这条 Cookie 能通过可用性检测（如知乎 `/api/v4/me` 返回 200）即可。
+
+#### Q2: 发现页点开知乎链接出现 JSON 怎么办？
+
+系统已做“API 链接强制网页化”：
+
+- `api/v4/questions/{id}` -> `https://www.zhihu.com/question/{id}`
+- `api/v4/articles/{id}` -> `https://zhuanlan.zhihu.com/p/{id}`
+- `api/v4/answers/{id}` -> `https://www.zhihu.com/answer/{id}`
+
+若仍出现异常，优先检查 Cookie 是否过期。
+
+#### Q3: 能否做到完全无人值守自动续期？
+
+理论可做，但不稳定。知乎可能触发验证码/二次验证。  
+推荐策略：定时导出 + 失效告警 + 人工补登录一次。
 
 ---
 

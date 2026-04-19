@@ -1,6 +1,7 @@
 """
 智能仓储每日简讯 - 配置文件
 """
+import os
 from pathlib import Path
 
 # 项目根目录
@@ -8,9 +9,20 @@ BASE_DIR = Path(__file__).parent
 OUTPUT_DIR = BASE_DIR / "output"
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
+RUNTIME_DIR = BASE_DIR / "runtime"
+
+# Cookie 文件支持环境变量覆盖，便于挂载到源码目录外（如上级目录）
+# 例如：COOKIE_FILE_PATH=/runtime/cookie.txt
+_cookie_file_env = (os.getenv("COOKIE_FILE_PATH") or "").strip()
+if _cookie_file_env:
+    COOKIE_FILE = Path(_cookie_file_env)
+else:
+    COOKIE_FILE = RUNTIME_DIR / "cookie.txt"
 
 # 确保输出目录存在
 OUTPUT_DIR.mkdir(exist_ok=True)
+RUNTIME_DIR.mkdir(exist_ok=True)
+COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # 服务配置
 HOST = "0.0.0.0"
@@ -39,6 +51,9 @@ LOCAL_REGION_KEYWORDS = [
 
 # 本地页展示上限（允许少于该值，不强行补满）
 MAX_ARTICLES_LOCAL = 12
+
+# 发现页展示上限（知乎/B站等辅助发现源）
+MAX_ARTICLES_DISCOVER = 18
 
 # 本地项目意图关键词（至少命中一项）
 LOCAL_INTENT_KEYWORDS = [
@@ -86,6 +101,10 @@ LOCAL_WECHAT_WHITELIST = [
 # HTTP 请求配置
 REQUEST_TIMEOUT = 15       # 秒
 MAX_CONCURRENT = 8         # 最大并发请求数
+SKILL_FETCH_TIMEOUT_SECONDS = 45      # 单个 Skill 全量抓取超时（秒）
+SKILL_CACHE_TTL_SECONDS = 1800        # Skill 结果缓存时间（秒，默认 30 分钟）
+SKILL_FAILURE_THRESHOLD = 2           # 连续失败阈值，达到后进入冷却
+SKILL_FAILURE_COOLDOWN_SECONDS = 900  # Skill 冷却时间（秒，默认 15 分钟）
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -100,3 +119,20 @@ DOWNLOAD_IMAGES = True     # 是否下载图片到本地
 # 页面主题配置
 # 可选值: "notion", "apple", "linear"
 THEME = "notion"
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """从环境变量读取布尔值"""
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "on"}
+
+
+# 知乎抓取配置
+# 默认关闭 Playwright 主链路，优先走登录态 HTTP + Bing 兜底
+USE_PLAYWRIGHT_FOR_ZHIHU = _env_bool("USE_PLAYWRIGHT_FOR_ZHIHU", False)
+# 建议通过环境变量注入，不要写死到代码库
+ZHIHU_COOKIE = (os.getenv("ZHIHU_COOKIE") or "").strip()
+# B站可选 Cookie（优先从 runtime/cookie.txt 读取）
+BILIBILI_COOKIE = (os.getenv("BILIBILI_COOKIE") or "").strip()

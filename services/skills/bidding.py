@@ -86,8 +86,11 @@ class BiddingSkill(RSSKeywordSkill):
                 },
                 headers={"Referer": "https://www.toutiao.com/"},
             )
-            data = resp.json()
-            for item in data.get("data", []):
+            data = resp.json() if resp.status_code == 200 else {}
+            rows = (data or {}).get("data") or []
+            if not isinstance(rows, list):
+                rows = []
+            for item in rows:
                 if not isinstance(item, dict):
                     continue
                 title = clean_title(str(item.get("title", "")).strip())

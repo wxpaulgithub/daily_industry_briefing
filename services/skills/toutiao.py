@@ -52,9 +52,12 @@ class ToutiaoSkill(NewsSkill):
                 },
                 headers={"Referer": "https://www.toutiao.com/"},
             )
-            data = resp.json()
+            data = resp.json() if resp.status_code == 200 else {}
+            rows = (data or {}).get("data") or []
+            if not isinstance(rows, list):
+                rows = []
 
-            for item in data.get("data", []):
+            for item in rows:
                 if not isinstance(item, dict):
                     continue
 

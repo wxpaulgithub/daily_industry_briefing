@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Zhihu">
+  <rect width="320" height="180" fill="#0f172a"/>
+  <rect x="18" y="18" width="284" height="144" rx="16" fill="#1d4ed8"/>
+  <text x="160" y="98" text-anchor="middle" font-size="44" font-family="Arial, PingFang SC, sans-serif" font-weight="700" fill="#ffffff">知乎</text>
+</svg>
