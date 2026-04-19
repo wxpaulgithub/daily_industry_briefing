@@ -5,7 +5,8 @@ WORKDIR /app
 # 安装依赖（利用 Docker 层缓存，依赖不变则不重新安装）
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir --default-timeout=120 --retries 10 -r requirements.txt \
+    && pip install --no-cache-dir --default-timeout=120 --retries 10 setuptools wheel \
+    && pip install --no-cache-dir --default-timeout=120 --retries 10 --no-build-isolation -r requirements.txt \
     && python -m playwright install --with-deps chromium
 
 # 复制项目文件

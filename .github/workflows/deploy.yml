@@ -28,7 +28,7 @@ jobs:
           port: ${{ secrets.SERVER_PORT }}
           timeout: 60s
           command_timeout: 60m
-          capture_stdout: true
+          capture_stdout: false
           script: |
             set -euo pipefail
 
