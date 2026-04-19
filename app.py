@@ -30,13 +30,22 @@ _is_fetching = False
 _current_fetch_scope = "all"
 
 
+def _normalize_wechat_kind(v: str | None) -> str:
+    x = (v or "").strip().lower()
+    if x in ("industry", "local"):
+        return x
+    return "all"
+
+
 def _article_in_scope(article: Article, scope: str) -> bool:
     s = (article.region_scope or "national").strip().lower()
     if scope == "local":
         return s == "local"
     if scope == "discover":
         return s == "discover"
-    return s not in ("local", "discover")
+    if scope == "wechat":
+        return s == "wechat"
+    return s not in ("local", "discover", "wechat")
 
 
 def _merge_scope_articles(existing: list[Article], scoped: list[Article], scope: str) -> list[Article]:
@@ -121,17 +130,18 @@ app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 # ===== 页面路由 =====
 
 @app.get("/", response_class=HTMLResponse)
-async def index(scope: str = Query(DEFAULT_SCOPE)):
+async def index(scope: str = Query(DEFAULT_SCOPE), wechat_kind: str = Query("all")):
     """今日资讯页面，主题由前端 localStorage + CSS 切换"""
     scope = _normalize_scope(scope)
+    wechat_kind = _normalize_wechat_kind(wechat_kind)
     date_str = datetime.now().strftime("%Y-%m-%d")
 
     # 优先从 JSON 动态渲染，支持 scope 切换
     data = load_articles_json(date_str)
     if data:
         articles = [Article(**d) for d in data]
-        filtered = _filter_articles_by_scope(articles, scope)
-        return HTMLResponse(content=render_html(filtered, output_type="web", scope=scope))
+        filtered = _filter_articles_by_scope(articles, scope, wechat_kind)
+        return HTMLResponse(content=render_html(filtered, output_type="web", scope=scope, wechat_kind=wechat_kind))
 
     # 兜底：旧文件兼容（仅 national）
     html_file = OUTPUT_DIR / f"{date_str}.html"
@@ -140,7 +150,7 @@ async def index(scope: str = Query(DEFAULT_SCOPE)):
 
     # 没有今日数据，返回加载页面并触发后台采集
     asyncio.create_task(_do_fetch(scope))
-    return HTMLResponse(content=_loading_page(scope))
+    return HTMLResponse(content=_loading_page(scope, wechat_kind))
 
 
 @app.get("/wechat", response_class=HTMLResponse)
@@ -156,14 +166,15 @@ async def wechat_page():
 
 
 @app.get("/archive/{date_str}", response_class=HTMLResponse)
-async def archive(date_str: str, scope: str = Query(DEFAULT_SCOPE)):
+async def archive(date_str: str, scope: str = Query(DEFAULT_SCOPE), wechat_kind: str = Query("all")):
     """历史资讯页面"""
     scope = _normalize_scope(scope)
+    wechat_kind = _normalize_wechat_kind(wechat_kind)
     data = load_articles_json(date_str)
     if data:
         articles = [Article(**d) for d in data]
-        filtered = _filter_articles_by_scope(articles, scope)
-        html = render_html(filtered, output_type="web", scope=scope)
+        filtered = _filter_articles_by_scope(articles, scope, wechat_kind)
+        html = render_html(filtered, output_type="web", scope=scope, wechat_kind=wechat_kind)
         return HTMLResponse(content=html)
 
     archive_file = OUTPUT_DIR / f"{date_str}.html"
@@ -187,26 +198,28 @@ async def refresh(scope: str = Query(DEFAULT_SCOPE)):
 
 
 @app.get("/api/news/today")
-async def news_today(scope: str = Query(DEFAULT_SCOPE)):
+async def news_today(scope: str = Query(DEFAULT_SCOPE), wechat_kind: str = Query("all")):
     """今日资讯JSON数据"""
     scope = _normalize_scope(scope)
+    wechat_kind = _normalize_wechat_kind(wechat_kind)
     date_str = datetime.now().strftime("%Y-%m-%d")
     data = load_articles_json(date_str)
     if not data:
-        return JSONResponse({"articles": [], "date": date_str, "scope": scope})
-    articles = _filter_articles_by_scope([Article(**d) for d in data], scope)
-    return JSONResponse({"articles": [a.__dict__ for a in articles], "date": date_str, "scope": scope})
+        return JSONResponse({"articles": [], "date": date_str, "scope": scope, "wechat_kind": wechat_kind})
+    articles = _filter_articles_by_scope([Article(**d) for d in data], scope, wechat_kind)
+    return JSONResponse({"articles": [a.__dict__ for a in articles], "date": date_str, "scope": scope, "wechat_kind": wechat_kind})
 
 
 @app.get("/api/news/{date_str}")
-async def news_by_date(date_str: str, scope: str = Query(DEFAULT_SCOPE)):
+async def news_by_date(date_str: str, scope: str = Query(DEFAULT_SCOPE), wechat_kind: str = Query("all")):
     """指定日期资讯JSON数据"""
     scope = _normalize_scope(scope)
+    wechat_kind = _normalize_wechat_kind(wechat_kind)
     data = load_articles_json(date_str)
     if not data:
         raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的资讯数据")
-    articles = _filter_articles_by_scope([Article(**d) for d in data], scope)
-    return JSONResponse({"articles": [a.__dict__ for a in articles], "date": date_str, "scope": scope})
+    articles = _filter_articles_by_scope([Article(**d) for d in data], scope, wechat_kind)
+    return JSONResponse({"articles": [a.__dict__ for a in articles], "date": date_str, "scope": scope, "wechat_kind": wechat_kind})
 
 
 @app.get("/api/status")
@@ -241,21 +254,29 @@ def _normalize_scope(scope: str) -> str:
         return "local"
     if v == "discover":
         return "discover"
+    if v == "wechat":
+        return "wechat"
     return "national"
 
 
-def _filter_articles_by_scope(articles: list[Article], scope: str) -> list[Article]:
+def _filter_articles_by_scope(articles: list[Article], scope: str, wechat_kind: str = "all") -> list[Article]:
     if scope == "local":
         return [a for a in articles if (a.region_scope or "national") == "local"]
     if scope == "discover":
         return [a for a in articles if (a.region_scope or "national") == "discover"]
+    if scope == "wechat":
+        pool = [a for a in articles if (a.region_scope or "national") == "wechat"]
+        kind = _normalize_wechat_kind(wechat_kind)
+        if kind == "all":
+            return pool
+        return [a for a in pool if ((a.wechat_category or "industry").strip().lower() == kind)]
     return [
         a for a in articles
-        if (a.region_scope or "national") not in ("local", "discover")
+        if (a.region_scope or "national") not in ("local", "discover", "wechat")
     ]
 
 
-def _loading_page(scope: str = "national") -> str:
+def _loading_page(scope: str = "national", wechat_kind: str = "all") -> str:
     """返回加载中页面"""
     date_display = datetime.now().strftime("%Y年%m月%d日")
     return f"""<!DOCTYPE html>
@@ -291,7 +312,7 @@ let attempts = 0;
 const check = setInterval(async () => {{
   attempts++;
   try {{
-    const res = await fetch('/api/news/today?scope={scope}');
+    const res = await fetch('/api/news/today?scope={scope}&wechat_kind={wechat_kind}');
     const data = await res.json();
     if (data.articles && data.articles.length > 0) {{
       clearInterval(check);

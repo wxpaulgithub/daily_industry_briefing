@@ -396,7 +396,61 @@ venv\Scripts\python fetch.py
 ```text
 http://localhost:8088/api/refresh?scope=national   # 只刷新国内
 http://localhost:8088/api/refresh?scope=local      # 只刷新本地
+http://localhost:8088/api/refresh?scope=wechat     # 只刷新公众号
 http://localhost:8088/api/refresh?scope=discover   # 只刷新发现（知乎/B站）
+```
+
+说明：
+- 国内/本地页面不再混入公众号搜狗结果；
+- 公众号内容统一在 `scope=wechat` 页面展示，并支持子筛选：
+  - `/?scope=wechat&wechat_kind=all`
+  - `/?scope=wechat&wechat_kind=industry`
+  - `/?scope=wechat&wechat_kind=local`
+
+### 公众号来源配置（配置驱动，避免硬编码）
+
+公众号账号与查询词由以下文件统一管理：
+
+```text
+config_data/wechat_sources.json
+```
+
+推荐模式（主通道）：
+- 在每个 `source` 配置 `rss_url`（由 we-mp-rss 产出）；
+- 系统优先消费 RSS 并聚合到“公众号”页面。
+
+示例字段：
+- `name`: 公众号显示名（用于来源展示）
+- `scopes`: `wechat` / `local`（可同时配置）
+- `rss_url`: we-mp-rss 生成的 RSS 地址（为空则该账号不会进入 RSS 主链路）
+
+你可以在 `sources` 中随时新增/禁用账号，并通过 `scopes` 指定投放范围：
+- `wechat`：进入“公众号”页
+- `local`：进入“本地”页（复用同一账号池）
+
+同一个账号可同时配置到两个范围，例如：`["local", "wechat"]`。
+
+搜狗兜底（可选）：
+- 默认关闭（轻量模式，避免过度依赖反爬链路）
+- 如需开启，设置环境变量：`USE_SOGOU_WECHAT_FALLBACK=true`
+
+配置示例：
+
+```json
+{
+  "sources": [
+    {"name": "无锡发布", "enabled": true, "scopes": ["local", "wechat"]},
+    {"name": "中鼎集成", "enabled": true, "scopes": ["wechat"], "aliases": ["中鼎"] }
+  ],
+  "queries": {
+    "wechat": [
+      {"keyword": "智能仓储 立体仓库 堆垛机", "label": "智能仓储"}
+    ],
+    "local": [
+      {"keyword": "无锡 新吴区 引进项目 最新项目", "label": "本地项目动态"}
+    ]
+  }
+}
 ```
 
 ---

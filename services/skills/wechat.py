@@ -27,6 +27,11 @@ from services.fetcher import (
     clean_title,
     normalize_summary,
 )
+from services.wechat_sources import (
+    get_scope_queries,
+    has_scope_sources,
+    source_match_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +44,17 @@ _SOGOU_BASE = "https://weixin.sogou.com"
 # 反爬冷却秒数（跨实例共享）
 _ANTISPIDER_COOLDOWN_SECONDS = 300
 _GLOBAL_BLOCKED_UNTIL = 0.0
+
+DEFAULT_WECHAT_QUERIES = [
+    {"keyword": "智能仓储 立体仓库 堆垛机", "label": "智能仓储"},
+    {"keyword": "智能制造 工业自动化", "label": "智能制造"},
+    {"keyword": "AGV 物流机器人 仓储机器人", "label": "AGV物流"},
+    {"keyword": "WMS WCS MES 数字化工厂", "label": "数字化"},
+    {"keyword": "中鼎集成 昆船智能 北自科技 兰剑", "label": "厂商A"},
+    {"keyword": "今天国际 井松智能 音飞储存 德马科技", "label": "厂商B"},
+    {"keyword": "极智嘉 海柔创新 快仓 海康机器人", "label": "厂商C"},
+    {"keyword": "工业自动化展 智能制造展 物流展", "label": "工业展览"},
+]
 
 
 def _get_blocked_until(local_until: float = 0.0) -> float:
@@ -447,16 +463,20 @@ class WeChatSkill(NewsSkill):
 
     @property
     def search_queries(self) -> list[dict]:
-        return [
-            {"keyword": "智能仓储 立体仓库 堆垛机", "label": "智能仓储"},
-            {"keyword": "智能制造 工业自动化", "label": "智能制造"},
-            {"keyword": "AGV 物流机器人 仓储机器人", "label": "AGV物流"},
-            {"keyword": "WMS WCS MES 数字化工厂", "label": "数字化"},
-            {"keyword": "中鼎集成 昆船智能 北自科技 兰剑", "label": "厂商A"},
-            {"keyword": "今天国际 井松智能 音飞储存 德马科技", "label": "厂商B"},
-            {"keyword": "极智嘉 海柔创新 快仓 海康机器人", "label": "厂商C"},
-            {"keyword": "工业自动化展 智能制造展 物流展", "label": "工业展览"},
-        ]
+        override = get_scope_queries("wechat")
+        if override:
+            return override
+        return DEFAULT_WECHAT_QUERIES
+
+    @property
+    def source_filter_scope(self) -> str:
+        """账号配置过滤使用的 scope"""
+        return "wechat"
+
+    @property
+    def wechat_category(self) -> str:
+        """wechat 页子分类：industry / local"""
+        return "industry"
 
     async def fetch(self, client: httpx.AsyncClient, keyword: str, count: int = 10) -> list[Article]:
         """从搜狗微信搜索获取公众号文章"""
@@ -719,10 +739,19 @@ class WeChatSkill(NewsSkill):
                 continue
 
         logger.info(f"[{self.name}] 采集完成，获取 {len(all_articles)} 条原始资讯")
-        for a in all_articles:
+        filtered = list(all_articles)
+        target_scope = (self.source_filter_scope or "wechat").strip().lower()
+        if target_scope not in ("wechat", "local"):
+            target_scope = "wechat"
+        if has_scope_sources(target_scope):
+            filtered = [a for a in all_articles if source_match_scope(a.source_name, target_scope)]
+            logger.info(f"[{self.name}] 账号配置过滤后保留 {len(filtered)} 条")
+
+        for a in filtered:
             a.skill_name = self.name
             a.region_scope = self.region_scope
-        return all_articles
+            a.wechat_category = self.wechat_category
+        return filtered
 
     # ===== HTML 解析 =====
 
@@ -862,4 +891,4 @@ class WeChatSkill(NewsSkill):
         )
     @property
     def region_scope(self) -> str:
-        return "national"
+        return "wechat"

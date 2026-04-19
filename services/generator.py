@@ -32,7 +32,12 @@ def _get_date_str() -> tuple[str, str]:
     return display, filename
 
 
-def render_html(articles: list, output_type: str = "web", scope: str = "national") -> str:
+def render_html(
+    articles: list,
+    output_type: str = "web",
+    scope: str = "national",
+    wechat_kind: str = "all",
+) -> str:
     """渲染 HTML 文本（不落盘）"""
     date_display, _ = _get_date_str()
     template_name = "wechat.html" if output_type == "wechat" else "magazine.html"
@@ -42,6 +47,7 @@ def render_html(articles: list, output_type: str = "web", scope: str = "national
         date_str=date_display,
         loading=False,
         scope=scope,
+        wechat_kind=wechat_kind,
     )
 
 

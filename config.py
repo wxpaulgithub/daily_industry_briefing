@@ -10,6 +10,7 @@ OUTPUT_DIR = BASE_DIR / "output"
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 RUNTIME_DIR = BASE_DIR / "runtime"
+CONFIG_DATA_DIR = BASE_DIR / "config_data"
 
 # Cookie 文件支持环境变量覆盖，便于挂载到源码目录外（如上级目录）
 # 例如：COOKIE_FILE_PATH=/runtime/cookie.txt
@@ -22,7 +23,17 @@ else:
 # 确保输出目录存在
 OUTPUT_DIR.mkdir(exist_ok=True)
 RUNTIME_DIR.mkdir(exist_ok=True)
+CONFIG_DATA_DIR.mkdir(exist_ok=True)
 COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+# 公众号来源配置文件（支持环境变量覆盖）
+# 示例：WECHAT_SOURCES_FILE_PATH=/runtime/wechat_sources.json
+_wechat_sources_env = (os.getenv("WECHAT_SOURCES_FILE_PATH") or "").strip()
+if _wechat_sources_env:
+    WECHAT_SOURCES_FILE = Path(_wechat_sources_env)
+else:
+    WECHAT_SOURCES_FILE = CONFIG_DATA_DIR / "wechat_sources.json"
+WECHAT_SOURCES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # 服务配置
 HOST = "0.0.0.0"
@@ -34,13 +45,14 @@ SCHEDULE_MINUTE = 0
 
 # 资讯数量
 MAX_ARTICLES = 24
-NATIONAL_WECHAT_MIN_COUNT = 4  # 国内页公众号最小保底条数（有足够候选时）
 NATIONAL_BIDDING_MIN_COUNT = 4  # 国内页招投标最小保底条数（有足够候选时）
 SUMMARY_MAX_LENGTH = 200  # 摘要最大字符数
 MAX_ARTICLE_AGE_DAYS = 15 # 只选取15天内的文章
 
 # 范围切换配置
 # local: 本地资讯（本地项目/本地政策/本地投资）
+# wechat: 公众号资讯（配置账号池）
+# discover: 发现资讯（知乎/B站）
 # national: 国内行业资讯（默认）
 DEFAULT_SCOPE = "national"
 
@@ -54,6 +66,8 @@ MAX_ARTICLES_LOCAL = 12
 
 # 发现页展示上限（知乎/B站等辅助发现源）
 MAX_ARTICLES_DISCOVER = 18
+# 公众号页展示上限
+MAX_ARTICLES_WECHAT = 18
 
 # 本地项目意图关键词（至少命中一项）
 LOCAL_INTENT_KEYWORDS = [
@@ -132,6 +146,8 @@ def _env_bool(name: str, default: bool) -> bool:
 # 知乎抓取配置
 # 默认关闭 Playwright 主链路，优先走登录态 HTTP + Bing 兜底
 USE_PLAYWRIGHT_FOR_ZHIHU = _env_bool("USE_PLAYWRIGHT_FOR_ZHIHU", False)
+# 公众号搜狗兜底（默认关闭，优先使用 RSS 主链路）
+USE_SOGOU_WECHAT_FALLBACK = _env_bool("USE_SOGOU_WECHAT_FALLBACK", False)
 # 建议通过环境变量注入，不要写死到代码库
 ZHIHU_COOKIE = (os.getenv("ZHIHU_COOKIE") or "").strip()
 # B站可选 Cookie（优先从 runtime/cookie.txt 读取）

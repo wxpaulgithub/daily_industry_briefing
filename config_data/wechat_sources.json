@@ -1,0 +1,61 @@
+{
+  "sources": [
+    {
+      "name": "无锡发布",
+      "enabled": true,
+      "scopes": ["local", "wechat"],
+      "aliases": ["无锡市人民政府发布"],
+      "rss_url": ""
+    },
+    {
+      "name": "无锡观察",
+      "enabled": true,
+      "scopes": ["local", "wechat"],
+      "rss_url": ""
+    },
+    {
+      "name": "无锡高新区",
+      "enabled": true,
+      "scopes": ["local", "wechat"],
+      "rss_url": ""
+    },
+    {
+      "name": "新吴发布",
+      "enabled": true,
+      "scopes": ["local", "wechat"],
+      "rss_url": ""
+    },
+    {
+      "name": "锡山发布",
+      "enabled": true,
+      "scopes": ["local", "wechat"],
+      "rss_url": ""
+    },
+    {
+      "name": "惠山发布",
+      "enabled": true,
+      "scopes": ["local", "wechat"],
+      "rss_url": ""
+    },
+    {
+      "name": "滨湖发布",
+      "enabled": true,
+      "scopes": ["local", "wechat"],
+      "rss_url": ""
+    }
+  ],
+  "queries": {
+    "wechat": [
+      {"keyword": "智能仓储 立体仓库 堆垛机", "label": "智能仓储"},
+      {"keyword": "智能制造 工业自动化", "label": "智能制造"},
+      {"keyword": "AGV 物流机器人 仓储机器人", "label": "AGV物流"},
+      {"keyword": "WMS WCS MES 数字化工厂", "label": "数字化"}
+    ],
+    "local": [
+      {"keyword": "无锡 新吴区 锡山区 惠山区 滨湖区 引进项目 最新项目", "label": "本地项目动态"},
+      {"keyword": "无锡 新吴区 锡山区 惠山区 滨湖区 招商引资 项目签约", "label": "本地招商"},
+      {"keyword": "无锡 新吴区 锡山区 惠山区 滨湖区 新建厂房 扩建 开工投产", "label": "本地建设"},
+      {"keyword": "无锡 新吴区 锡山区 惠山区 滨湖区 智能仓储 物流中心", "label": "本地仓储政策"}
+    ]
+  }
+}

@@ -636,8 +636,16 @@
         <nav class="scope-switcher">
           <a data-scope="national" href="/?scope=national">国内</a>
           <a data-scope="local" href="/?scope=local">本地</a>
+          <a data-scope="wechat" href="/?scope=wechat">公众号</a>
           <a data-scope="discover" href="/?scope=discover">发现</a>
         </nav>
+        {% if scope == "wechat" %}
+        <nav class="scope-switcher wechat-kind-switcher" style="margin-top:10px;">
+          <a data-wechat-kind="all" href="/?scope=wechat&wechat_kind=all">全部</a>
+          <a data-wechat-kind="industry" href="/?scope=wechat&wechat_kind=industry">行业公众号</a>
+          <a data-wechat-kind="local" href="/?scope=wechat&wechat_kind=local">本地公众号</a>
+        </nav>
+        {% endif %}
       </div>
       <div class="header-divider"></div>
     </header>
@@ -721,7 +729,9 @@
     (function () {
       var params = new URLSearchParams(location.search);
       var rawScope = params.get('scope');
-      var scope = (rawScope === 'local' || rawScope === 'discover') ? rawScope : 'national';
+      var scope = (rawScope === 'local' || rawScope === 'discover' || rawScope === 'wechat') ? rawScope : 'national';
+      var rawWechatKind = params.get('wechat_kind');
+      var wechatKind = (rawWechatKind === 'industry' || rawWechatKind === 'local') ? rawWechatKind : 'all';
 
       var saved = localStorage.getItem('theme') || 'notion';
       document.body.className = 'theme-' + saved;
@@ -743,6 +753,7 @@
 
       // 范围切换：本地 / 国内
       document.querySelectorAll('.scope-switcher a').forEach(function (a) {
+        if (a.hasAttribute('data-wechat-kind')) return;
         var targetScope = a.getAttribute('data-scope');
         if (targetScope === scope) {
           a.classList.add('active');
@@ -751,6 +762,25 @@
           e.preventDefault();
           var p = new URLSearchParams(location.search);
           p.set('scope', targetScope);
+          if (targetScope !== 'wechat') {
+            p.delete('wechat_kind');
+          } else if (!p.get('wechat_kind')) {
+            p.set('wechat_kind', 'all');
+          }
+          location.href = location.pathname + '?' + p.toString();
+        });
+      });
+
+      document.querySelectorAll('.wechat-kind-switcher a').forEach(function (a) {
+        var targetKind = a.getAttribute('data-wechat-kind');
+        if (targetKind === wechatKind) {
+          a.classList.add('active');
+        }
+        a.addEventListener('click', function (e) {
+          e.preventDefault();
+          var p = new URLSearchParams(location.search);
+          p.set('scope', 'wechat');
+          p.set('wechat_kind', targetKind);
           location.href = location.pathname + '?' + p.toString();
         });
       });
@@ -761,7 +791,9 @@
       var orig = btn.textContent;
       var params = new URLSearchParams(location.search);
       var rawScope = params.get('scope');
-      var scope = (rawScope === 'local' || rawScope === 'discover') ? rawScope : 'national';
+      var scope = (rawScope === 'local' || rawScope === 'discover' || rawScope === 'wechat') ? rawScope : 'national';
+      var rawWechatKind = params.get('wechat_kind');
+      var wechatKind = (rawWechatKind === 'industry' || rawWechatKind === 'local') ? rawWechatKind : 'all';
       var baselineFetchedAt = 0;
       var maxWaitMs = 3 * 60 * 1000; // 最长等待 3 分钟
       var pollMs = 2000;
@@ -790,7 +822,11 @@
       }
 
       function fetchToday() {
-        return fetch('/api/news/today?scope=' + scope).then(function (r) { return r.json(); });
+        var url = '/api/news/today?scope=' + scope;
+        if (scope === 'wechat') {
+          url += '&wechat_kind=' + encodeURIComponent(wechatKind);
+        }
+        return fetch(url).then(function (r) { return r.json(); });
       }
 
       function pollUntilDone() {

@@ -23,13 +23,12 @@ from config import (
     LOCAL_INDUSTRY_KEYWORDS,
     LOCAL_INTENT_KEYWORDS,
     LOCAL_REGION_KEYWORDS,
-    LOCAL_WECHAT_WHITELIST,
     MAX_ARTICLES,
     MAX_ARTICLES_DISCOVER,
     MAX_ARTICLES_LOCAL,
+    MAX_ARTICLES_WECHAT,
     MAX_ARTICLE_AGE_DAYS,
     NATIONAL_BIDDING_MIN_COUNT,
-    NATIONAL_WECHAT_MIN_COUNT,
     REQUEST_TIMEOUT,
     SKILL_CACHE_TTL_SECONDS,
     SKILL_FAILURE_COOLDOWN_SECONDS,
@@ -38,6 +37,7 @@ from config import (
     SUMMARY_MAX_LENGTH,
     USER_AGENT,
 )
+from services.wechat_sources import source_match_scope
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,8 @@ class Article:
     fetched_at: float = field(default_factory=time.time)
     content_quality: float = 0.0
     skill_name: str = ""  # 来源 Skill 标识，用于差异化过滤
-    region_scope: str = DEFAULT_SCOPE  # local / national
+    region_scope: str = DEFAULT_SCOPE  # national / local / discover / wechat
+    wechat_category: str = ""  # wechat 页子分类：industry / local
     demand_signal_score: float = 0.0
     is_potential_warehouse_demand: bool = False
 
@@ -256,6 +257,8 @@ EXCLUDE_KEYWORDS = [
 SKILLS_USE_PRE_FILTER = {
     "本地项目",
     "微信公众号",
+    "本地公众号",
+    "公众号RSS",
     "政策标准",
     "招投标",
     "行业媒体",
@@ -381,10 +384,7 @@ def _is_local_excluded(article: Article) -> bool:
 
 def _is_local_whitelist_source(article: Article) -> bool:
     """来源是否命中本地公众号白名单"""
-    src = (article.source_name or "").strip().lower()
-    if not src:
-        return False
-    return any(kw.lower() in src for kw in LOCAL_WECHAT_WHITELIST)
+    return source_match_scope(article.source_name, "local")
 
 
 def _calc_demand_signal_score(article: Article) -> float:
@@ -571,35 +571,6 @@ def select_articles(articles: list[Article], count: int) -> list[Article]:
     return selected[:count]
 
 
-def _ensure_wechat_quota(selected: list[Article], pool: list[Article], min_count: int) -> list[Article]:
-    """国内页公众号保底条数：有足够候选时保证最小数量"""
-    if min_count <= 0:
-        return selected
-
-    wechat_selected = [a for a in selected if a.skill_name == "微信公众号"]
-    if len(wechat_selected) >= min_count:
-        return selected
-
-    selected_uids = {a.uid for a in selected}
-    wechat_candidates = [a for a in pool if a.skill_name == "微信公众号" and a.uid not in selected_uids]
-    wechat_candidates.sort(key=score_article, reverse=True)
-
-    need = min_count - len(wechat_selected)
-    additions = wechat_candidates[:need]
-    if not additions:
-        return selected
-
-    # 用最低分非公众号条目替换
-    non_wechat = [a for a in selected if a.skill_name != "微信公众号"]
-    non_wechat.sort(key=score_article)
-    replace_n = min(len(additions), len(non_wechat))
-    to_remove = {a.uid for a in non_wechat[:replace_n]}
-
-    replaced = [a for a in selected if a.uid not in to_remove] + additions[:replace_n]
-    replaced.sort(key=lambda a: a.published_ts, reverse=True)
-    return replaced
-
-
 def _ensure_bidding_quota(selected: list[Article], pool: list[Article], min_count: int) -> list[Article]:
     """国内页招投标保底条数：有足够候选时保证最小数量"""
     if min_count <= 0:
@@ -737,14 +708,18 @@ async def fetch_all_news() -> list[Article]:
     national_pool = [a for a in all_articles if (a.region_scope or "national") != "local"]
     local_pool = [a for a in all_articles if (a.region_scope or "national") == "local"]
     discover_pool = [a for a in all_articles if (a.region_scope or "national") == "discover"]
-    national_pool = [a for a in national_pool if (a.region_scope or "national") != "discover"]
+    wechat_pool = [a for a in all_articles if (a.region_scope or "national") == "wechat"]
+    national_pool = [
+        a for a in national_pool
+        if (a.region_scope or "national") not in ("discover", "wechat")
+    ]
 
     selected_national = select_articles(list(national_pool), MAX_ARTICLES)
-    selected_national = _ensure_wechat_quota(selected_national, national_pool, NATIONAL_WECHAT_MIN_COUNT)
     selected_national = _ensure_bidding_quota(selected_national, national_pool, NATIONAL_BIDDING_MIN_COUNT)
     selected_local = select_articles(list(local_pool), MAX_ARTICLES_LOCAL)
     selected_discover = _select_discover_articles(list(discover_pool), MAX_ARTICLES_DISCOVER)
-    selected = selected_national + selected_local + selected_discover
+    selected_wechat = select_articles(list(wechat_pool), MAX_ARTICLES_WECHAT)
+    selected = selected_national + selected_local + selected_discover + selected_wechat
     selected.sort(key=lambda a: a.published_ts, reverse=True)
 
     # 统一打上“本轮抓取时间”，确保前端手动刷新可在完成后自动重载
@@ -754,7 +729,7 @@ async def fetch_all_news() -> list[Article]:
 
     logger.info(
         "最终精选 "
-        f"{len(selected)} 条（国内 {len(selected_national)} / 本地 {len(selected_local)} / 发现 {len(selected_discover)}）"
+        f"{len(selected)} 条（国内 {len(selected_national)} / 本地 {len(selected_local)} / 发现 {len(selected_discover)} / 公众号 {len(selected_wechat)}）"
     )
     return selected
 
@@ -764,10 +739,12 @@ def _skill_matches_scope(skill: "NewsSkill", scope: str) -> bool:
     region = (getattr(skill, "region_scope", "national") or "national").strip().lower()
     if scope == "discover":
         return region == "discover"
+    if scope == "wechat":
+        return region == "wechat"
     if scope == "local":
         return region == "local"
-    # national: 仅国内主资讯，不包含 local/discover
-    return region not in ("local", "discover")
+    # national: 仅国内主资讯，不包含 local/discover/wechat
+    return region not in ("local", "discover", "wechat")
 
 
 def _select_by_scope(articles: list[Article], scope: str) -> list[Article]:
@@ -775,16 +752,18 @@ def _select_by_scope(articles: list[Article], scope: str) -> list[Article]:
     if scope == "discover":
         pool = [a for a in articles if (a.region_scope or "national") == "discover"]
         return _select_discover_articles(pool, MAX_ARTICLES_DISCOVER)
+    if scope == "wechat":
+        pool = [a for a in articles if (a.region_scope or "national") == "wechat"]
+        return select_articles(pool, MAX_ARTICLES_WECHAT)
     if scope == "local":
         pool = [a for a in articles if (a.region_scope or "national") == "local"]
         return select_articles(pool, MAX_ARTICLES_LOCAL)
 
     pool = [
         a for a in articles
-        if (a.region_scope or "national") not in ("local", "discover")
+        if (a.region_scope or "national") not in ("local", "discover", "wechat")
     ]
     selected = select_articles(pool, MAX_ARTICLES)
-    selected = _ensure_wechat_quota(selected, pool, NATIONAL_WECHAT_MIN_COUNT)
     selected = _ensure_bidding_quota(selected, pool, NATIONAL_BIDDING_MIN_COUNT)
     return selected
 
@@ -792,10 +771,10 @@ def _select_by_scope(articles: list[Article], scope: str) -> list[Article]:
 async def fetch_news_by_scope(scope: str) -> list[Article]:
     """
     按 scope 局部抓取资讯（仅运行对应 Skill 集合）
-    scope: national / local / discover
+    scope: national / local / discover / wechat
     """
     scope = (scope or "national").strip().lower()
-    if scope not in ("national", "local", "discover"):
+    if scope not in ("national", "local", "discover", "wechat"):
         scope = "national"
 
     from services.skills import SKILLS  # 延迟导入，避免循环依赖

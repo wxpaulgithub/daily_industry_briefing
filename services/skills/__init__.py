@@ -9,6 +9,7 @@
 
 from services.skills.toutiao import ToutiaoSkill
 from services.skills.wechat import WeChatSkill
+from services.skills.wechat_rss import WeChatRssSkill
 from services.skills.policy import PolicySkill
 from services.skills.bidding import BiddingSkill
 from services.skills.industry_media import IndustryMediaSkill
@@ -17,19 +18,24 @@ from services.skills.local_projects import LocalProjectSkill
 from services.skills.local_wechat import LocalWeChatProjectSkill
 from services.skills.zhihu_browser import ZhihuBrowserSkill
 from services.skills.bilibili_discover import BilibiliDiscoverSkill
+from config import USE_SOGOU_WECHAT_FALLBACK
 
 # ===== 已注册的 Skill 列表 =====
 # 按需添加新的 Skill 实例即可自动生效
 
 SKILLS = [
-    LocalWeChatProjectSkill(),
     LocalProjectSkill(),
     ZhihuBrowserSkill(),
     BilibiliDiscoverSkill(),
     ToutiaoSkill(),
-    WeChatSkill(),
+    WeChatRssSkill(),
     PolicySkill(),
     BiddingSkill(),
     IndustryMediaSkill(),
     ExpoAssocSkill(),
 ]
+
+# 搜狗通道仅作为可选兜底，默认关闭
+if USE_SOGOU_WECHAT_FALLBACK:
+    SKILLS.insert(0, LocalWeChatProjectSkill())
+    SKILLS.insert(4, WeChatSkill())
