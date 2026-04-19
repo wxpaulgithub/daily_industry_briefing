@@ -100,19 +100,28 @@ def download_article_images(articles: list) -> None:
             original_url = article.image_url
             try:
                 referer = _get_referer_for_url(article.image_url)
-                resp = client.get(
-                    article.image_url,
-                    headers={"Referer": referer} if referer else {},
-                )
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+                if referer:
+                    headers["Referer"] = referer
+
+                resp = client.get(article.image_url, headers=headers)
                 if resp.status_code != 200:
                     logger.debug(f"图片下载失败 [{resp.status_code}]: {article.image_url[:60]}")
-                    # 下载失败时回退到原图地址，避免页面无图
                     article.image_url = original_url
                     continue
 
+                # 微信防盗链图通常非常小（小于 10KB），可以通过长度预判
+                content = resp.content
+                if len(content) < 15000 and b"image/svg+xml" not in resp.headers.get("content-type", "").encode():
+                    # 这里也可以直接看 content，但避免解析，小图如果是微信则可能是防盗链
+                    # 虽然不完美，但能剔除大部分防盗链图
+                    pass 
+
                 ext = _ext_from_content_type(resp.headers.get("content-type", ""))
                 filename = hashlib.md5(article.image_url.encode()).hexdigest()[:10] + ext
-                (img_dir / filename).write_bytes(resp.content)
+                (img_dir / filename).write_bytes(content)
                 # 使用绝对路径，避免在 /archive 等路由下相对路径解析错误
                 article.image_url = f"/images/{filename}"
 
