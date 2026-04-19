@@ -85,8 +85,17 @@ class WeChatRssSkill(NewsSkill):
 
     async def fetch_all(self, client: httpx.AsyncClient) -> list[Article]:
         articles: list[Article] = []
-        # 公众号页要覆盖行业+本地两类账号
-        source_list = get_scope_rss_sources("wechat")
+        # 同时读取行业与本地 RSS 源，按 scopes 标注分类，避免页面串流
+        # 这样配置可清晰拆分为：
+        # - 本地号: scopes=["local"]
+        # - 行业号: scopes=["wechat"]
+        # - 特殊双投放: scopes=["local","wechat"]（不推荐常用）
+        source_map: dict[str, object] = {}
+        for scope in ("wechat", "local"):
+            for src in get_scope_rss_sources(scope):
+                key = f"{src.name}|{src.rss_url}"
+                source_map[key] = src
+        source_list = list(source_map.values())
         if not source_list:
             logger.info("[公众号RSS] 未配置 rss_url，跳过")
             return []
@@ -120,7 +129,9 @@ class WeChatRssSkill(NewsSkill):
                     if not title or not url:
                         continue
                     published_ts, published = _extract_published(entry)
-                    image_url = _extract_image(entry, summary_html)
+                    # 微信公众号图片常出现防盗链占位图（“未经允许不可引用”），
+                    # 为避免页面展示错误封面，这里统一不使用远程图片。
+                    image_url = ""
                     articles.append(
                         Article(
                             title=title,

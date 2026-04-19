@@ -387,6 +387,11 @@ def _is_local_whitelist_source(article: Article) -> bool:
     return source_match_scope(article.source_name, "local")
 
 
+def _count_hits(text: str, keywords: list[str]) -> int:
+    t = (text or "").lower()
+    return sum(1 for kw in keywords if kw and kw.lower() in t)
+
+
 def _calc_demand_signal_score(article: Article) -> float:
     """计算潜在仓储需求信号分"""
     text = (article.title + " " + article.summary).lower()
@@ -425,10 +430,14 @@ def filter_relevant(articles: list[Article]) -> list[Article]:
                 continue
             if not _is_local_region_hit(article):
                 continue
-            if not _is_local_intent_hit(article):
+            text = (article.title + " " + article.summary).lower()
+            intent_hits = _count_hits(text, LOCAL_INTENT_KEYWORDS)
+            industry_hits = _count_hits(text, LOCAL_INDUSTRY_KEYWORDS)
+            if intent_hits < 1:
                 continue
-            # 本地优先保证“项目意图”，工业场景不足时允许白名单公众号放行
-            if not (_is_local_industry_hit(article) or _is_local_whitelist_source(article)):
+            # 本地页进一步收紧：
+            # - 必须命中至少 2 个工业/物流关键词，避免“航班/赛事/民生”类污染
+            if industry_hits < 2:
                 continue
 
         if article.skill_name in SKILLS_USE_PRE_FILTER:
@@ -706,9 +715,24 @@ async def fetch_all_news() -> list[Article]:
         article.is_potential_warehouse_demand = article.demand_signal_score >= 0.8
 
     national_pool = [a for a in all_articles if (a.region_scope or "national") != "local"]
-    local_pool = [a for a in all_articles if (a.region_scope or "national") == "local"]
+    local_pool = [
+        a for a in all_articles
+        if ((a.region_scope or "national") == "local")
+        or (
+            (a.region_scope or "national") == "wechat"
+            and (
+                ((a.wechat_category or "industry").strip().lower() == "local")
+                or _is_local_whitelist_source(a)
+            )
+        )
+    ]
     discover_pool = [a for a in all_articles if (a.region_scope or "national") == "discover"]
-    wechat_pool = [a for a in all_articles if (a.region_scope or "national") == "wechat"]
+    wechat_pool = [
+        a for a in all_articles
+        if (a.region_scope or "national") == "wechat"
+        and ((a.wechat_category or "industry").strip().lower() != "local")
+        and (not _is_local_whitelist_source(a))
+    ]
     national_pool = [
         a for a in national_pool
         if (a.region_scope or "national") not in ("discover", "wechat")
@@ -742,7 +766,8 @@ def _skill_matches_scope(skill: "NewsSkill", scope: str) -> bool:
     if scope == "wechat":
         return region == "wechat"
     if scope == "local":
-        return region == "local"
+        # 本地页同时需要“本地公众号”数据（region=wechat, wechat_category=local）
+        return region in ("local", "wechat")
     # national: 仅国内主资讯，不包含 local/discover/wechat
     return region not in ("local", "discover", "wechat")
 
@@ -753,10 +778,25 @@ def _select_by_scope(articles: list[Article], scope: str) -> list[Article]:
         pool = [a for a in articles if (a.region_scope or "national") == "discover"]
         return _select_discover_articles(pool, MAX_ARTICLES_DISCOVER)
     if scope == "wechat":
-        pool = [a for a in articles if (a.region_scope or "national") == "wechat"]
+        pool = [
+            a for a in articles
+            if (a.region_scope or "national") == "wechat"
+            and ((a.wechat_category or "industry").strip().lower() != "local")
+            and (not _is_local_whitelist_source(a))
+        ]
         return select_articles(pool, MAX_ARTICLES_WECHAT)
     if scope == "local":
-        pool = [a for a in articles if (a.region_scope or "national") == "local"]
+        pool = [
+            a for a in articles
+            if ((a.region_scope or "national") == "local")
+            or (
+                (a.region_scope or "national") == "wechat"
+                and (
+                    ((a.wechat_category or "industry").strip().lower() == "local")
+                    or _is_local_whitelist_source(a)
+                )
+            )
+        ]
         return select_articles(pool, MAX_ARTICLES_LOCAL)
 
     pool = [

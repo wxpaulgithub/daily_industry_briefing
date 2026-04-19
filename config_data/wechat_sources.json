@@ -1,61 +1,231 @@
 {
-  "sources": [
-    {
-      "name": "无锡发布",
-      "enabled": true,
-      "scopes": ["local", "wechat"],
-      "aliases": ["无锡市人民政府发布"],
-      "rss_url": ""
-    },
-    {
-      "name": "无锡观察",
-      "enabled": true,
-      "scopes": ["local", "wechat"],
-      "rss_url": ""
-    },
-    {
-      "name": "无锡高新区",
-      "enabled": true,
-      "scopes": ["local", "wechat"],
-      "rss_url": ""
-    },
-    {
-      "name": "新吴发布",
-      "enabled": true,
-      "scopes": ["local", "wechat"],
-      "rss_url": ""
-    },
-    {
-      "name": "锡山发布",
-      "enabled": true,
-      "scopes": ["local", "wechat"],
-      "rss_url": ""
-    },
-    {
-      "name": "惠山发布",
-      "enabled": true,
-      "scopes": ["local", "wechat"],
-      "rss_url": ""
-    },
-    {
-      "name": "滨湖发布",
-      "enabled": true,
-      "scopes": ["local", "wechat"],
-      "rss_url": ""
-    }
-  ],
-  "queries": {
-    "wechat": [
-      {"keyword": "智能仓储 立体仓库 堆垛机", "label": "智能仓储"},
-      {"keyword": "智能制造 工业自动化", "label": "智能制造"},
-      {"keyword": "AGV 物流机器人 仓储机器人", "label": "AGV物流"},
-      {"keyword": "WMS WCS MES 数字化工厂", "label": "数字化"}
-    ],
-    "local": [
-      {"keyword": "无锡 新吴区 锡山区 惠山区 滨湖区 引进项目 最新项目", "label": "本地项目动态"},
-      {"keyword": "无锡 新吴区 锡山区 惠山区 滨湖区 招商引资 项目签约", "label": "本地招商"},
-      {"keyword": "无锡 新吴区 锡山区 惠山区 滨湖区 新建厂房 扩建 开工投产", "label": "本地建设"},
-      {"keyword": "无锡 新吴区 锡山区 惠山区 滨湖区 智能仓储 物流中心", "label": "本地仓储政策"}
-    ]
-  }
+    "sources":  [
+                    {
+                        "name":  "无锡发布",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "local"
+                                   ],
+                        "aliases":  [
+                                        "无锡市人民政府发布"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_2395797954.rss"
+                    },
+                    {
+                        "name":  "无锡观察",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "local"
+                                   ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3593545520.rss"
+                    },
+                    {
+                        "name":  "无锡高新区",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "local"
+                                   ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3009338958.rss"
+                    },
+                    {
+                        "name":  "高新区数据局",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "local"
+                                   ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3883059190.rss"
+                    },
+                    {
+                        "name":  "锡山发布",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "local"
+                                   ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3092010628.rss"
+                    },
+                    {
+                        "name":  "惠山发布",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "local"
+                                   ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3071493974.rss"
+                    },
+                    {
+                        "name":  "滨湖发布",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "local"
+                                   ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3097347943.rss"
+                    },
+                    {
+                        "name":  "中国物流与采购",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "wechat"
+                                   ],
+                        "aliases":  [
+                                        "中物联"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3093520807.rss"
+                    },
+                    {
+                        "name":  "智能仓储物流技术研习社",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "wechat"
+                                   ],
+                        "aliases":  [
+                                        "研习社"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3572729273.rss"
+                    },
+                    {
+                        "name":  "智能仓储物流技术与应用",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "wechat"
+                                   ],
+                        "aliases":  [
+                                        "物流技术应用"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3935408754.rss"
+                    },
+                    {
+                        "name":  "物流技术与应用融媒",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "wechat"
+                                   ],
+                        "aliases":  [
+                                        "物流技术应用杂志"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_2394587703.rss"
+                    },
+                    {
+                        "name":  "Logix智能天机宫",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "wechat"
+                                   ],
+                        "aliases":  [
+                                        "天机宫"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3964783759.rss"
+                    },
+                    {
+                        "name":  "机器人营销研习社",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "wechat"
+                                   ],
+                        "aliases":  [
+                                        "机器人研习社"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3241139275.rss"
+                    }
+                ],
+    "queries":  {
+                    "wechat":  [
+                                   {
+                                       "keyword":  "立体库 堆垛机 输送线 提升机",
+                                       "label":  "立体库设备"
+                                   },
+                                   {
+                                       "keyword":  "WMS WCS MES 对接 集成",
+                                       "label":  "系统集成"
+                                   },
+                                   {
+                                       "keyword":  "AGV AMR 调度 仓储机器人",
+                                       "label":  "移动机器人"
+                                   },
+                                   {
+                                       "keyword":  "仓储自动化 改造 项目 交付",
+                                       "label":  "项目交付"
+                                   },
+                                   {
+                                       "keyword":  "物流自动化 招标 中标",
+                                       "label":  "招中标动态"
+                                   },
+                                   {
+                                       "keyword":  "冷链仓 自动化仓 改造",
+                                       "label":  "行业场景"
+                                   },
+                                   {
+                                       "label":  "中鼎集成",
+                                       "keyword":  "中鼎 项目 交付 立体库"
+                                   },
+                                   {
+                                       "label":  "昆船智能",
+                                       "keyword":  "昆船 物流系统 立体库"
+                                   },
+                                   {
+                                       "label":  "北自科技",
+                                       "keyword":  "北自科技 智能仓储 物流自动化"
+                                   },
+                                   {
+                                       "label":  "兰剑智能",
+                                       "keyword":  "兰剑 WMS WCS 项目"
+                                   },
+                                   {
+                                       "label":  "今天国际",
+                                       "keyword":  "今天国际 WMS WCS 项目"
+                                   },
+                                   {
+                                       "label":  "井松智能",
+                                       "keyword":  "井松智能 AGV AMR 立库"
+                                   },
+                                   {
+                                       "label":  "音飞储存",
+                                       "keyword":  "音飞储存 立体库 堆垛机"
+                                   },
+                                   {
+                                       "label":  "德马科技",
+                                       "keyword":  "德马科技 输送分拣 物流装备"
+                                   },
+                                   {
+                                       "label":  "极智嘉",
+                                       "keyword":  "极智嘉 Geek+ AMR 仓储机器人"
+                                   },
+                                   {
+                                       "label":  "海柔创新",
+                                       "keyword":  "海柔创新 箱式仓储机器人 HaiPick"
+                                   },
+                                   {
+                                       "label":  "快仓机器人",
+                                       "keyword":  "快仓机器人 AMR 调度 仓储"
+                                   },
+                                   {
+                                       "label":  "海康机器人",
+                                       "keyword":  "海康机器人 移动机器人 机器视觉 物流"
+                                   },
+                                   {
+                                       "label":  "国自机器人",
+                                       "keyword":  "国自机器人 AGV AMR 智能物流"
+                                   },
+                                   {
+                                       "label":  "凯乐士",
+                                       "keyword":  "凯乐士科技 立库 输送 仓储自动化"
+                                   }
+                               ],
+                    "local":  [
+                                  {
+                                      "keyword":  "无锡 新吴区 锡山区 惠山区 滨湖区 项目 开工 投产",
+                                      "label":  "本地项目"
+                                  },
+                                  {
+                                      "keyword":  "无锡 招商引资 产业园 物流园",
+                                      "label":  "本地招商"
+                                  },
+                                  {
+                                      "keyword":  "无锡 智能制造 仓储物流 自动化",
+                                      "label":  "本地智造"
+                                  },
+                                  {
+                                      "keyword":  "无锡 政策 扶持 制造业 数字化",
+                                      "label":  "本地政策"
+                                  }
+                              ]
+                }
 }

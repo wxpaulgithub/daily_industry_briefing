@@ -16,6 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE, DEFAULT_SCOPE
 from services.fetcher import fetch_all_news, fetch_news_by_scope, Article
 from services.generator import render_both, save_articles_json, load_articles_json, render_html
+from services.wechat_sources import source_match_scope
 
 # 日志配置
 logging.basicConfig(
@@ -39,12 +40,14 @@ def _normalize_wechat_kind(v: str | None) -> str:
 
 def _article_in_scope(article: Article, scope: str) -> bool:
     s = (article.region_scope or "national").strip().lower()
+    wk = (article.wechat_category or "industry").strip().lower()
+    is_local_source = source_match_scope(article.source_name, "local")
     if scope == "local":
-        return s == "local"
+        return (s == "local") or (s == "wechat" and (wk == "local" or is_local_source))
     if scope == "discover":
         return s == "discover"
     if scope == "wechat":
-        return s == "wechat"
+        return s == "wechat" and wk != "local" and (not is_local_source)
     return s not in ("local", "discover", "wechat")
 
 
@@ -261,15 +264,26 @@ def _normalize_scope(scope: str) -> str:
 
 def _filter_articles_by_scope(articles: list[Article], scope: str, wechat_kind: str = "all") -> list[Article]:
     if scope == "local":
-        return [a for a in articles if (a.region_scope or "national") == "local"]
+        return [
+            a for a in articles
+            if ((a.region_scope or "national") == "local")
+            or (
+                (a.region_scope or "national") == "wechat"
+                and (
+                    ((a.wechat_category or "industry").strip().lower() == "local")
+                    or source_match_scope(a.source_name, "local")
+                )
+            )
+        ]
     if scope == "discover":
         return [a for a in articles if (a.region_scope or "national") == "discover"]
     if scope == "wechat":
-        pool = [a for a in articles if (a.region_scope or "national") == "wechat"]
-        kind = _normalize_wechat_kind(wechat_kind)
-        if kind == "all":
-            return pool
-        return [a for a in pool if ((a.wechat_category or "industry").strip().lower() == kind)]
+        return [
+            a for a in articles
+            if (a.region_scope or "national") == "wechat"
+            and ((a.wechat_category or "industry").strip().lower() != "local")
+            and (not source_match_scope(a.source_name, "local"))
+        ]
     return [
         a for a in articles
         if (a.region_scope or "national") not in ("local", "discover", "wechat")

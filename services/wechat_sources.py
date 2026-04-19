@@ -62,7 +62,8 @@ def _load_from_file(path: Path) -> tuple[list[WeChatSource], dict[str, list[dict
         return [], {}
 
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        # 兼容带 BOM 的 UTF-8 文件（常见于部分 Windows 编辑器）
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception as e:
         logger.warning(f"[公众号配置] 读取失败，已回退默认配置: {e}")
         return [], {}

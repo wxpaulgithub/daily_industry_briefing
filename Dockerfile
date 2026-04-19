@@ -1,6 +1,9 @@
-﻿FROM python:3.13-slim
+FROM python:3.13-slim
 
 WORKDIR /app
+
+# 替换 Debian 12 (Bookworm) 软件源为阿里云镜像，加速 Playwright 安装系统依赖的操作
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
 
 # 构建参数：可按需覆盖
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
