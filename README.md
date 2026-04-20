@@ -31,7 +31,7 @@
 ### 1. 安装
 
 ```bash
-cd "Z:\home\Drive\劢世达\Logo素材\上线网页\资讯杂志"
+cd "I:\资讯杂志"
 
 # 创建虚拟环境
 python -m venv venv
@@ -218,11 +218,14 @@ python fetch.py
 | Skill | 文件 | 数据源 | 特点 |
 |-------|------|--------|------|
 | ToutiaoSkill | `skills/toutiao.py` | 今日头条搜索 API | 时效性强、覆盖广 |
-| WeChatSkill | `skills/wechat.py` | 搜狗微信搜索 | 补足公众号深度内容，含跳转链接解析 |
+| WeChatRssSkill | `skills/wechat_rss.py` | 微信公众号 RSS | 公众号深度内容，配置驱动 |
+| ZhihuDiscoverSkill | `skills/zhihu_discover.py` | 知乎搜索 API | Cookie 登录态 + Bing 兜底 |
+| BilibiliDiscoverSkill | `skills/bilibili_discover.py` | B站搜索 API | 视频内容，API + Bing 兜底 |
 | PolicySkill | `skills/policy.py` | 政策/部委 RSS | 政策与标准导向 |
 | BiddingSkill | `skills/bidding.py` | 招投标 RSS | 项目商机与中标动态 |
 | IndustryMediaSkill | `skills/industry_media.py` | 行业媒体 RSS | 产业趋势与案例 |
 | ExpoAssocSkill | `skills/expo_assoc.py` | 展会/协会 RSS | 展会活动与行业风向 |
+| LocalProjectSkill | `skills/local_projects.py` | 本地项目搜索 | 无锡区域项目动态 |
 
 ---
 
@@ -455,15 +458,16 @@ config_data/wechat_sources.json
 
 ---
 
-## 发现页（知乎/B站）Cookie 与 Playwright 实战
+## 发现页（知乎/B站）Cookie 配置
 
 本章节详细说明：
 
 1. 为什么要用 Cookie
 2. `runtime/cookie.txt` 如何配置
 3. 如何手工获取知乎 Cookie
-4. 如何用 Playwright 从本机登录态刷新 Cookie 文件
-5. 常见问题与排查
+4. 如何使用交互式脚本更新 Cookie
+5. 如何上传 Cookie 到服务器
+6. 常见问题与排查
 
 ### 1) 为什么要用 Cookie
 
@@ -509,46 +513,49 @@ SESSDATA=...; bili_jct=...; DedeUserID=...; ...
 5. 在 `Request Headers` 找到 `Cookie:` 行。  
 6. 复制冒号后整串内容，粘贴到 `runtime/cookie.txt` 的 `[zhihu]` 下。
 
-### 4) 使用 Playwright 自动刷新 Cookie 文件（手动触发）
+### 4) 使用交互式脚本更新 Cookie（推荐）
 
 脚本文件：
 
 ```text
-scripts/refresh_cookie_file_playwright.py
+scripts/update_cookie.py
 ```
 
 功能：
 
-- 复用本机浏览器登录态（Edge/Chrome 持久化用户目录）
-- 导出站点 Cookie
-- 覆盖写入 `runtime/cookie.txt`
+- 引导用户从浏览器 F12 中复制 Cookie
+- 自动检查关键认证凭证（知乎检查 `z_c0`，B站检查 `SESSDATA`）
+- 写入 `runtime/cookie.txt`
 
-常用命令（Windows）：
-
-```bash
-# 仅刷新知乎
-venv\Scripts\python.exe scripts\refresh_cookie_file_playwright.py --site zhihu --browser msedge
-
-# 同时刷新知乎+B站
-venv\Scripts\python.exe scripts\refresh_cookie_file_playwright.py --site both --browser msedge
-```
-
-可选参数：
+常用命令：
 
 ```bash
-venv\Scripts\python.exe scripts\refresh_cookie_file_playwright.py ^
-  --site zhihu ^
-  --browser msedge ^
-  --user-data-dir "C:\Users\你的用户名\AppData\Local\Microsoft\Edge\User Data" ^
-  --profile-directory Default
+# 仅更新知乎
+python scripts\update_cookie.py --site zhihu
+
+# 同时更新知乎+B站
+python scripts\update_cookie.py --site both
 ```
 
-注意事项：
+脚本运行后会提示你在浏览器 F12 中复制 Cookie 并粘贴到终端，整个过程无需安装额外依赖。
 
-- 执行脚本前建议先关闭同一用户目录下正在运行的浏览器，否则可能启动失败。
-- 脚本是“读取当前登录态并导出”，不是“自动输入账号密码登录”。
+为什么不使用 Playwright 自动导出？
 
-### 4.1) Windows 一键：刷新后自动上传服务器
+知乎的登录认证 Cookie（`z_c0`）经过加密存储，Playwright 无法通过 `context.cookies()` API 或请求拦截完整获取。手动从浏览器开发者工具复制是最可靠的方式。
+
+### 4.1) 上传 Cookie 到服务器
+
+如需将本地 Cookie 文件上传到远程部署的服务器，可直接使用 `scp`：
+
+```powershell
+scp I:\资讯杂志\runtime\cookie.txt user@your-server:/opt/news_runtime/cookie.txt
+```
+
+也可使用项目中的上传辅助脚本：
+
+```text
+scripts/refresh_and_upload_cookie.ps1
+```
 
 已提供脚本：
 
@@ -563,64 +570,23 @@ scripts/refresh_and_upload_cookie.ps1
 3. 使用 `ssh` 在远端创建目录（如不存在）
 4. 使用 `scp` 上传到服务器指定路径
 
-推荐先配置固定参数文件：
+配置文件：
 
 ```text
 scripts/cookie_upload.config.ps1
 ```
 
-示例内容（可直接修改）：
+示例内容：
 
 ```powershell
 @{
-  ServerHost       = "你的服务器IP或域名"
-  ServerUser       = "root"
-  RemoteCookiePath = "/opt/news_runtime/cookie.txt"
+  ServerHost       = “你的服务器IP或域名”
+  ServerUser       = “root”
+  RemoteCookiePath = “/opt/news_runtime/cookie.txt”
   ServerPort       = 22
-  SshKeyPath       = "C:\Users\你的用户名\.ssh\id_ed25519"
-  UserDataDir      = ""
-  ProfileDirectory = "Default"
+  SshKeyPath       = “C:\Users\你的用户名\.ssh\id_ed25519”
 }
 ```
-
-然后使用最简命令（仅知乎）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\refresh_and_upload_cookie.ps1 `
-  -Site zhihu `
-  -Browser msedge
-```
-
-最简命令（知乎+B站）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\refresh_and_upload_cookie.ps1 `
-  -Site both `
-  -Browser msedge
-```
-
-如需临时覆盖配置文件中的某个值，可直接加参数（例如换服务器）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\refresh_and_upload_cookie.ps1 `
-  -Site zhihu `
-  -ServerHost 1.2.3.4
-```
-
-可选参数：
-
-- `-ServerPort 22`
-- `-SshKeyPath C:\Users\你\.ssh\id_rsa`
-- `-UserDataDir ...`
-- `-ProfileDirectory Default`
-- `-Headless`
-
-关于 `ssh` 和 `scp` 的选择：
-
-- 推荐“`ssh + scp` 组合”：
-- `ssh` 负责执行远端命令（本脚本用于 `mkdir -p` 创建目录）。
-- `scp` 负责文件传输（本脚本用于上传 `cookie.txt`）。
-- 这样比只用 `scp` 更稳妥，避免远端目录不存在导致上传失败。
 
 ### 5) 验证 Cookie 是否已加载
 
@@ -646,10 +612,10 @@ Cookie 文件读取结果：
 
 ### 6) 常见问题
 
-#### Q1: 为什么我手工导出的 Cookie 和脚本导出的不一致？
+#### Q1: Cookie 多久会过期？
 
-这是正常现象。Cookie 会随时间、页面、风控状态动态变化。  
-只要当前这条 Cookie 能通过可用性检测（如知乎 `/api/v4/me` 返回 200）即可。
+Cookie 有效期不固定，取决于站点的风控策略。知乎通常几天到几周不等。
+失效后服务日志会出现 `[知乎发现] 知乎登录态不可用，状态码 401`，重新导出即可。
 
 #### Q2: 发现页点开知乎链接出现 JSON 怎么办？
 

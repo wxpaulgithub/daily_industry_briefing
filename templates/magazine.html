@@ -6,6 +6,21 @@
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>智能仓储每日简讯 · {{ date_str }}</title>
+
+  <!-- Open Graph: 微信/QQ 等平台分享链接时显示标题、摘要和缩略图 -->
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="智能仓储每日简讯 · {{ date_str }}">
+  <meta property="og:description" content="专业、及时、精选，每天更新智能仓储与物流自动化动态及资讯">
+  {% if articles and articles[0].image_url %}
+  {% if articles[0].image_url.startswith('http') %}
+  <meta property="og:image" content="{{ articles[0].image_url }}">
+  {% else %}
+  <meta property="og:image" content="{{ site_url }}{{ articles[0].image_url }}">
+  {% endif %}
+  {% else %}
+  <meta property="og:image" content="{{ site_url }}/static/img.jpg">
+  {% endif %}
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&display=swap"
@@ -341,7 +356,8 @@
     }
 
     .featured-source {
-      color: #E04825; /* 全局统一使用 Notion 的高级红 */
+      color: #E04825;
+      /* 全局统一使用 Notion 的高级红 */
       font-size: 13px;
       font-weight: 600;
       margin-bottom: 12px;
@@ -356,7 +372,8 @@
       display: inline-block;
       width: 6px;
       height: 6px;
-      background: #E04825; /* 全局统一使用 Notion 的高级红 */
+      background: #E04825;
+      /* 全局统一使用 Notion 的高级红 */
       border-radius: 50%;
     }
 
@@ -441,7 +458,8 @@
     .article-meta {
       font-size: 12px;
       font-weight: 600;
-      color: #E04825;  /* 全局统一使用 Notion 的高级红 */
+      color: #E04825;
+      /* 全局统一使用 Notion 的高级红 */
       margin-bottom: 8px;
       letter-spacing: 0.05em;
       font-family: var(--font-body);
@@ -503,7 +521,8 @@
     .footer-divider {
       width: 32px;
       height: 2px;
-      background: #4AB0B0; /* 统一使用品牌主题色 */
+      background: #4AB0B0;
+      /* 统一使用品牌主题色 */
       margin: 0 auto 32px;
       opacity: 0.5;
     }
@@ -654,7 +673,8 @@
             onerror="this.onerror=null;this.src='{% if '知乎' in articles[0].source_name %}/static/discover-zhihu.svg{% elif 'B站' in articles[0].source_name %}/static/discover-bilibili.svg{% else %}/static/logo.png{% endif %}';">
           {% else %}
           <div class="thumb-fallback">
-            {% if '知乎' in articles[0].source_name %}知乎{% elif 'B站' in articles[0].source_name %}B站{% else %}资讯{% endif %}
+            {% if '知乎' in articles[0].source_name %}知乎{% elif 'B站' in articles[0].source_name %}B站{% else %}资讯{% endif
+            %}
           </div>
           {% endif %}
         </div>
@@ -697,11 +717,7 @@
     <!-- 空状态 -->
     <section class="articles-section" style="text-align:center;padding:120px 0;">
       <div style="font-size:14px;color:var(--text-muted);font-weight:500;letter-spacing:0.1em;">今日暂无资讯</div>
-      {% if scope not in ["local", "wechat"] %}
-      <button class="footer-refresh" onclick="doRefresh(this)" style="margin-top:32px;">
-        即刻拉取
-      </button>
-      {% endif %}
+
     </section>
     {% endif %}
 

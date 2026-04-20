@@ -11,14 +11,7 @@ param(
     [string]$SshKeyPath = "",
 
     [ValidateSet("zhihu", "bilibili", "both")]
-    [string]$Site = "zhihu",
-
-    [ValidateSet("msedge", "chrome", "chromium")]
-    [string]$Browser = "msedge",
-
-    [string]$UserDataDir = "",
-    [string]$ProfileDirectory = "Default",
-    [switch]$Headless
+    [string]$Site = "zhihu"
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,19 +96,13 @@ try {
     if (-not $SshKeyPath) {
         $SshKeyPath = [string](Get-CfgValue -Cfg $Cfg -Key "SshKeyPath" -Default "")
     }
-    if (-not $UserDataDir) {
-        $UserDataDir = [string](Get-CfgValue -Cfg $Cfg -Key "UserDataDir" -Default "")
-    }
-    if ($ProfileDirectory -eq "Default" -and $Cfg.ContainsKey("ProfileDirectory")) {
-        $ProfileDirectory = [string]$Cfg["ProfileDirectory"]
-    }
 
     if (-not $ServerHost -or -not $ServerUser -or -not $RemoteCookiePath) {
         throw "Missing required server settings. Please set ServerHost/ServerUser/RemoteCookiePath in config or params."
     }
 
     $VenvPython = Join-Path $ProjectRoot "venv\Scripts\python.exe"
-    $RefreshScript = Join-Path $ProjectRoot "scripts\refresh_cookie_file_playwright.py"
+    $RefreshScript = Join-Path $ProjectRoot "scripts\update_cookie.py"
     $LocalCookieFile = Join-Path $ProjectRoot "runtime\cookie.txt"
 
     if (-not (Test-Path -LiteralPath $VenvPython)) {
@@ -125,21 +112,11 @@ try {
         throw "Script not found: $RefreshScript"
     }
 
-    Write-Step "Refresh local cookie (site=$Site, browser=$Browser)"
+    Write-Step "Refresh local cookie (site=$Site)"
     $args = @(
         $RefreshScript,
-        "--site", $Site,
-        "--browser", $Browser
+        "--site", $Site
     )
-    if ($UserDataDir) {
-        $args += @("--user-data-dir", $UserDataDir)
-    }
-    if ($ProfileDirectory) {
-        $args += @("--profile-directory", $ProfileDirectory)
-    }
-    if ($Headless.IsPresent) {
-        $args += "--headless"
-    }
 
     & $VenvPython @args
     if ($LASTEXITCODE -ne 0) {

@@ -38,6 +38,9 @@ WECHAT_SOURCES_FILE.parent.mkdir(parents=True, exist_ok=True)
 # 服务配置
 HOST = "0.0.0.0"
 PORT = 8088
+# 站点公开 URL（用于微信/QQ 分享卡片中的 og:image 绝对路径）
+# 部署到云端后通过环境变量设置为实际域名，如：SITE_URL=https://news.yourdomain.com
+SITE_URL = (os.getenv("SITE_URL") or "").strip().rstrip("/") or f"http://localhost:{PORT}"
 
 # 定时任务配置
 SCHEDULE_HOUR = 7    # 每天早上7点
@@ -147,8 +150,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 # 知乎抓取配置
-# 默认关闭 Playwright 主链路，优先走登录态 HTTP + Bing 兜底
-USE_PLAYWRIGHT_FOR_ZHIHU = _env_bool("USE_PLAYWRIGHT_FOR_ZHIHU", False)
+# 使用登录态 HTTP + Bing 兜底方案，无需无头浏览器
 # 公众号搜狗兜底（默认关闭，优先使用 RSS 主链路）
 USE_SOGOU_WECHAT_FALLBACK = _env_bool("USE_SOGOU_WECHAT_FALLBACK", False)
 # 建议通过环境变量注入，不要写死到代码库

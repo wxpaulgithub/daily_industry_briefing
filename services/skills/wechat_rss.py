@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import logging
 import re
@@ -63,6 +64,50 @@ def _extract_image(entry: dict, summary_html: str) -> str:
             return m.group(1).strip()
     except Exception:
         return ""
+    return ""
+
+
+# 从微信文章页面提取封面图的正则模式（按可靠性排列）
+_OG_IMAGE_RE = re.compile(r'property="og:image"\s+content="([^"]+)"')
+_MSG_CDN_RE = re.compile(r'var\s+msg_cdn_url\s*=\s*"([^"]+)"')
+# 并发限制：避免批量请求触发微信风控
+_COVER_SEMAPHORE = asyncio.Semaphore(5)
+
+
+async def _fetch_cover_image(client: httpx.AsyncClient, article_url: str) -> str:
+    """访问微信文章页面，提取 og:image 作为封面图
+
+    微信 RSS（we-mp-rss）不提供图片数据，但文章页面始终包含
+    og:image meta 标签和 msg_cdn_url JS 变量，是最可靠的封面图来源。
+    """
+    if not article_url or "mp.weixin.qq.com" not in article_url:
+        return ""
+    async with _COVER_SEMAPHORE:
+        try:
+            resp = await client.get(
+                article_url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/131.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "text/html,application/xhtml+xml",
+                },
+                timeout=12.0,
+            )
+            if resp.status_code != 200:
+                return ""
+            # 只读前 50KB 就够提取 meta 标签，避免解析整个 3MB 页面
+            text = resp.text[:50000]
+            m = _OG_IMAGE_RE.search(text)
+            if m:
+                return m.group(1).strip()
+            m = _MSG_CDN_RE.search(text)
+            if m:
+                return m.group(1).strip()
+        except Exception as e:
+            logger.debug(f"[公众号RSS] 封面提取失败 {article_url[:60]}: {e}")
     return ""
 
 
@@ -130,6 +175,25 @@ class WeChatRssSkill(NewsSkill):
                         wechat_category=wechat_category,
                     )
                 )
+
+            # 批量提取缺少封面图的文章的 og:image
+            no_image = [a for a in articles if not a.image_url]
+            if no_image:
+                tasks = [
+                    _fetch_cover_image(client, a.url)
+                    for a in no_image
+                ]
+                cover_results = await asyncio.gather(*tasks)
+                filled = 0
+                for article, cover_url in zip(no_image, cover_results):
+                    if cover_url:
+                        article.image_url = cover_url
+                        filled += 1
+                if filled:
+                    logger.info(
+                        f"[公众号RSS] [{getattr(src, 'name', '')}] "
+                        f"封面提取: {filled}/{len(no_image)} 篇成功"
+                    )
         except Exception as e:
             logger.warning(f"[公众号RSS] 抓取失败 [{getattr(src, 'name', '')}] {feed_url}: {e}")
         return articles

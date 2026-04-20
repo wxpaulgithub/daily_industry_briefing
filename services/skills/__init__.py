@@ -16,7 +16,7 @@ from services.skills.industry_media import IndustryMediaSkill
 from services.skills.expo_assoc import ExpoAssocSkill
 from services.skills.local_projects import LocalProjectSkill
 from services.skills.local_wechat import LocalWeChatProjectSkill
-from services.skills.zhihu_browser import ZhihuBrowserSkill
+from services.skills.zhihu_discover import ZhihuDiscoverSkill
 from services.skills.bilibili_discover import BilibiliDiscoverSkill
 from config import USE_SOGOU_WECHAT_FALLBACK
 
@@ -25,7 +25,7 @@ from config import USE_SOGOU_WECHAT_FALLBACK
 
 SKILLS = [
     LocalProjectSkill(),
-    ZhihuBrowserSkill(),
+    ZhihuDiscoverSkill(),
     BilibiliDiscoverSkill(),
     ToutiaoSkill(),
     WeChatRssSkill(),

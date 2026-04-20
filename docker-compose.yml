@@ -1,4 +1,4 @@
-﻿services:
+services:
   news:
     build:
       context: .
@@ -9,6 +9,8 @@
       - "8088:8088"
     environment:
       - COOKIE_FILE_PATH=/runtime/cookie.txt
+      
+      - SITE_URL=https://mag.mhstar.tech
     volumes:
       - ./output:/app/output
       # 将 cookie 文件放在源码目录上一层（宿主机），避免跟代码发布耦合

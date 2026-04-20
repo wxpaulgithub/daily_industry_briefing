@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 from jinja2 import Environment, FileSystemLoader
 
-from config import DOWNLOAD_IMAGES, IMAGE_MAX_WIDTH, IMAGE_QUALITY, OUTPUT_DIR, TEMPLATE_DIR
+from config import DOWNLOAD_IMAGES, IMAGE_MAX_WIDTH, IMAGE_QUALITY, OUTPUT_DIR, SITE_URL, TEMPLATE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ def render_html(
         loading=False,
         scope=scope,
         wechat_kind=wechat_kind,
+        site_url=SITE_URL,
     )
 
 
@@ -112,14 +113,19 @@ def download_article_images(articles: list) -> None:
                     article.image_url = original_url
                     continue
 
-                # 微信防盗链图通常非常小（小于 10KB），可以通过长度预判
+                # 微信防盗链图通常非常小（小于 5KB），正常封面至少几十 KB
                 content = resp.content
-                if len(content) < 15000 and b"image/svg+xml" not in resp.headers.get("content-type", "").encode():
-                    # 这里也可以直接看 content，但避免解析，小图如果是微信则可能是防盗链
-                    # 虽然不完美，但能剔除大部分防盗链图
-                    pass 
+                content_type = resp.headers.get("content-type", "")
+                is_svg = "svg" in content_type.lower()
+                if len(content) < 5000 and not is_svg:
+                    logger.debug(
+                        f"图片疑似防盗链占位图（{len(content)} bytes），跳过: "
+                        f"{article.image_url[:60]}"
+                    )
+                    article.image_url = ""
+                    continue
 
-                ext = _ext_from_content_type(resp.headers.get("content-type", ""))
+                ext = _ext_from_content_type(content_type)
                 filename = hashlib.md5(article.image_url.encode()).hexdigest()[:10] + ext
                 (img_dir / filename).write_bytes(content)
                 # 使用绝对路径，避免在 /archive 等路由下相对路径解析错误

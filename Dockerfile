@@ -2,19 +2,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 替换 Debian 12 (Bookworm) 软件源为阿里云镜像，加速 Playwright 安装系统依赖的操作
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
-    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
-
 # 构建参数：可按需覆盖
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 ARG PIP_EXTRA_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
-ARG PLAYWRIGHT_DOWNLOAD_HOST=
 
 # 下载加速配置
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 ENV PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
-ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
 
 # 安装依赖（利用 Docker 层缓存，依赖不变则不重新安装）
 COPY requirements.txt .
@@ -24,8 +18,7 @@ RUN python -m pip install --upgrade pip \
        setuptools wheel \
     && pip install --no-cache-dir --default-timeout=300 --retries 20 --no-build-isolation \
        --index-url ${PIP_INDEX_URL} --extra-index-url ${PIP_EXTRA_INDEX_URL} \
-       -r requirements.txt \
-    && python -m playwright install --with-deps chromium
+       -r requirements.txt
 
 # 复制项目文件
 COPY app.py config.py fetch.py ./
