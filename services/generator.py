@@ -145,6 +145,8 @@ def _get_referer_for_url(url: str) -> str:
         return "https://mp.weixin.qq.com/"
     if "zhimg.com" in url:
         return "https://www.zhihu.com/"
+    if "hdslb.com" in url or "bilibili.com" in url:
+        return "https://www.bilibili.com/"
     return ""
 
 

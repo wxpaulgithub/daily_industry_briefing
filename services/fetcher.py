@@ -729,10 +729,11 @@ def _source_key(article: Article) -> str:
 
 def _select_discover_articles(articles: list[Article], count: int) -> list[Article]:
     """
-    发现页专用选取策略：
-    1) 先选真实条目（排除占位）
-    2) 尽量保证知乎/B站都有内容
-    3) 不足时再补占位兜底
+    发现页双源均衡选取策略：
+
+    核心思路：先各自独立从知乎/B站池中选出各自配额，
+    再将剩余配额开放给有余量的一方补足，最后补占位兜底。
+    这样无论哪方数据多寡，都不会互相通过轮选稀释对方。
     """
     if count <= 0:
         return []
@@ -740,41 +741,68 @@ def _select_discover_articles(articles: list[Article], count: int) -> list[Artic
     real_items = [a for a in articles if not _is_discover_placeholder(a)]
     placeholder_items = [a for a in articles if _is_discover_placeholder(a)]
 
-    # 先从真实内容中按通用算法选
-    selected_real = select_articles(list(real_items), count)
+    # 按来源分池，各自按质量分降序
+    zhihu_pool = sorted(
+        [a for a in real_items if _source_key(a) == "zhihu"],
+        key=score_article, reverse=True
+    )
+    bilibili_pool = sorted(
+        [a for a in real_items if _source_key(a) == "bilibili"],
+        key=score_article, reverse=True
+    )
+    other_pool = sorted(
+        [a for a in real_items if _source_key(a) == "other"],
+        key=score_article, reverse=True
+    )
 
-    # 基础双源配额（有候选时尽量保证各 3 条）
-    min_per_source = 3
-    selected_uids = {a.uid for a in selected_real}
-    for source in ("zhihu", "bilibili"):
-        current = [a for a in selected_real if _source_key(a) == source]
-        if len(current) >= min_per_source:
-            continue
-        need = min_per_source - len(current)
-        candidates = [a for a in real_items if _source_key(a) == source and a.uid not in selected_uids]
-        candidates.sort(key=score_article, reverse=True)
-        additions = candidates[:need]
-        for a in additions:
-            if len(selected_real) >= count:
+    # 双源各占一半配额（奇数时 B站多一个）
+    half = count // 2
+    zhihu_quota = half
+    bilibili_quota = count - half
+
+    selected: list[Article] = []
+    selected_uids: set[str] = set()
+
+    def _pick(pool: list[Article], quota: int) -> list[Article]:
+        """从池中按配额选取，记录已选 uid 防重复"""
+        result = []
+        for a in pool:
+            if len(result) >= quota:
                 break
-            selected_real.append(a)
-            selected_uids.add(a.uid)
+            if a.uid not in selected_uids:
+                result.append(a)
+                selected_uids.add(a.uid)
+        return result
 
-    # 长度裁剪（避免配额补充导致超出）
-    if len(selected_real) > count:
-        selected_real.sort(key=lambda a: score_article(a), reverse=True)
-        selected_real = selected_real[:count]
-        selected_uids = {a.uid for a in selected_real}
+    # 第一阶段：双源各取配额
+    zhihu_selected = _pick(zhihu_pool, zhihu_quota)
+    bilibili_selected = _pick(bilibili_pool, bilibili_quota)
+    selected = zhihu_selected + bilibili_selected
 
-    # 不足时再补占位（占位永远后置）
-    if len(selected_real) < count:
+    # 第二阶段：将剩余配额开放 -- 先 other，再从双源剩余中取分高者
+    remaining = count - len(selected)
+    if remaining > 0:
+        selected += _pick(other_pool, remaining)
+        remaining = count - len(selected)
+
+    if remaining > 0:
+        # 知乎或 B站配额未用完（对方数据不足），从剩余候选中补
+        zhihu_surplus = [a for a in zhihu_pool if a.uid not in selected_uids]
+        bilibili_surplus = [a for a in bilibili_pool if a.uid not in selected_uids]
+        surplus = sorted(zhihu_surplus + bilibili_surplus, key=score_article, reverse=True)
+        selected += _pick(surplus, remaining)
+
+    # 第三阶段：仍不足则补占位兜底（始终后置）
+    remaining = count - len(selected)
+    if remaining > 0:
         placeholders = [a for a in placeholder_items if a.uid not in selected_uids]
-        placeholders.sort(key=lambda a: score_article(a), reverse=True)
-        selected_real.extend(placeholders[: max(0, count - len(selected_real))])
+        placeholders.sort(key=score_article, reverse=True)
+        selected += placeholders[:remaining]
 
-    # 发现页以质量分优先，弱化发布时间影响
-    selected_real.sort(key=lambda a: score_article(a), reverse=True)
-    return selected_real[:count]
+    # 发现页最终按质量分排序展示
+    selected.sort(key=score_article, reverse=True)
+    return selected[:count]
+
 
 
 # ===== 主入口 =====
