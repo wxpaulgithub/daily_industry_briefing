@@ -15,7 +15,13 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE, DEFAULT_SCOPE
 from services.fetcher import fetch_all_news, fetch_news_by_scope, Article
-from services.generator import render_both, save_articles_json, load_articles_json, render_html
+from services.generator import (
+    download_article_images,
+    render_both,
+    save_articles_json,
+    load_articles_json,
+    render_html,
+)
 from services.wechat_sources import source_match_scope
 
 # 日志配置
@@ -73,25 +79,39 @@ async def _do_fetch(scope: str | None = None):
     _is_fetching = True
     _current_fetch_scope = normalized_scope
     try:
+        scoped_count = None
+        existing_count = 0
+
         if normalized_scope == "all":
             logger.info("开始全量采集资讯...")
             articles = await fetch_all_news()
         else:
             logger.info(f"开始局部采集资讯... scope={normalized_scope}")
             scoped_articles = await fetch_news_by_scope(normalized_scope)
+            scoped_count = len(scoped_articles)
             date_str = datetime.now().strftime("%Y-%m-%d")
             existing_data = load_articles_json(date_str)
             existing_articles = [Article(**d) for d in existing_data] if existing_data else []
+            existing_count = len(existing_articles)
             articles = _merge_scope_articles(existing_articles, scoped_articles, normalized_scope)
 
         if not articles:
             logger.warning("未采集到任何资讯")
             return
 
+        # 先将外链图片本地化，避免微信/CDN 防盗链导致页面无图
+        download_article_images(articles)
+
         # 生成 Web 版和微信公众号版
         render_both(articles)
         save_articles_json(articles)
-        logger.info(f"资讯生成完成: {len(articles)} 条（scope={normalized_scope}）")
+        if normalized_scope == "all":
+            logger.info(f"全量刷新完成：本次生成 {len(articles)} 条资讯")
+        else:
+            logger.info(
+                f"局部刷新完成：scope={normalized_scope}，本次抓取 {scoped_count or 0} 条，"
+                f"原有数据 {existing_count} 条，合并后总计 {len(articles)} 条"
+            )
     except Exception as e:
         logger.error(f"采集失败: {e}", exc_info=True)
     finally:

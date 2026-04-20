@@ -832,7 +832,7 @@
             return;
           }
 
-          setBusy(status.fetching ? '采集中...' : '等待写入...');
+          setBusy(status.fetching ? '采集中...' : '加载中...');
           setTimeout(pollUntilDone, pollMs);
         }).catch(function () {
           setReady('失败，重试');
