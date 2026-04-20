@@ -113,11 +113,13 @@ def download_article_images(articles: list) -> None:
                     article.image_url = original_url
                     continue
 
-                # 微信防盗链图通常非常小（小于 5KB），正常封面至少几十 KB
+                # 微信防盗链图通常非常小（小于 5KB），其它来源可能会有合法的极小缩略图（如知乎头像）
                 content = resp.content
                 content_type = resp.headers.get("content-type", "")
                 is_svg = "svg" in content_type.lower()
-                if len(content) < 5000 and not is_svg:
+                is_wechat_img = "qpic.cn" in article.image_url or "qlogo.cn" in article.image_url or "sogoucdn.com" in article.image_url
+                
+                if is_wechat_img and len(content) < 5000 and not is_svg:
                     logger.debug(
                         f"图片疑似防盗链占位图（{len(content)} bytes），跳过: "
                         f"{article.image_url[:60]}"
