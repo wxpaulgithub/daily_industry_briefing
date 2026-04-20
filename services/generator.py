@@ -143,6 +143,8 @@ def _get_referer_for_url(url: str) -> str:
         return "https://weixin.sogou.com/"
     if "mmbiz.qpic.cn" in url or "mmbiz.qlogo.cn" in url:
         return "https://mp.weixin.qq.com/"
+    if "zhimg.com" in url:
+        return "https://www.zhihu.com/"
     return ""
 
 
