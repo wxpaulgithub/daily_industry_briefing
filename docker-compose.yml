@@ -14,3 +14,13 @@
       # 将 cookie 文件放在源码目录上一层（宿主机），避免跟代码发布耦合
       - ../news_runtime:/runtime
     restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8088/api/status', timeout=5)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 180s

@@ -51,8 +51,39 @@ jobs:
             docker compose down
             docker compose up -d --build --force-recreate --remove-orphans
             docker compose ps
+            CONTAINER_ID="$(docker compose ps -q news)"
+            if [ -z "$CONTAINER_ID" ]; then
+              echo "错误：未找到 news 容器"
+              docker compose logs news --tail 200 || true
+              exit 1
+            fi
 
-            echo ">>> 健康检查: 验证服务可访问..."
-            curl -fsS http://127.0.0.1:8088/api/status >/dev/null
+            echo ">>> 健康检查: 等待容器进入 healthy 状态..."
+            for i in $(seq 1 60); do
+              STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER_ID")"
+              echo "第 ${i} 次检查: $STATUS"
+
+              if [ "$STATUS" = "healthy" ]; then
+                break
+              fi
+
+              if [ "$STATUS" = "unhealthy" ] || [ "$STATUS" = "exited" ] || [ "$STATUS" = "dead" ]; then
+                echo "错误：容器状态异常：$STATUS"
+                docker compose logs news --tail 200 || true
+                exit 1
+              fi
+
+              sleep 5
+            done
+
+            FINAL_STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER_ID")"
+            if [ "$FINAL_STATUS" != "healthy" ]; then
+              echo "错误：等待健康检查超时，最终状态：$FINAL_STATUS"
+              docker compose logs news --tail 200 || true
+              exit 1
+            fi
+
+            echo ">>> 健康检查: 验证宿主机端口可访问..."
+            curl -fsS --retry 5 --retry-delay 2 --retry-connrefused http://127.0.0.1:8088/api/status >/dev/null
 
             echo "========== 部署完成 =========="
