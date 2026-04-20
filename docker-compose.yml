@@ -4,7 +4,7 @@ services:
       context: .
       args:
         PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple/
-        PIP_EXTRA_INDEX_URL: https://pypi.org/simple
+        PIP_EXTRA_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple/
     ports:
       - "8088:8088"
     environment:
