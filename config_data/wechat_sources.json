@@ -12,6 +12,17 @@
                         "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_2395797954.rss"
                     },
                     {
+                        "name":  "无锡日报",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "local"
+                                   ],
+                        "aliases":  [
+                                        "日报"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3080296635.rss"
+                    },
+                    {
                         "name":  "无锡观察",
                         "enabled":  true,
                         "scopes":  [
@@ -113,6 +124,17 @@
                                         "天机宫"
                                     ],
                         "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3964783759.rss"
+                    },
+                    {
+                        "name":  "物流club",
+                        "enabled":  true,
+                        "scopes":  [
+                                       "wechat"
+                                   ],
+                        "aliases":  [
+                                        "物流Club"
+                                    ],
+                        "rss_url":  "http://8.153.199.51:8001/feed/MP_WXS_3582394315.rss"
                     },
                     {
                         "name":  "机器人营销研习社",
