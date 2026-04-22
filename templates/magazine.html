@@ -6,6 +6,7 @@
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>智能仓储每日简讯 · {{ date_str }}</title>
+  {% set fallback_images = ['/static/img.jpg', '/static/og.jpg', '/static/1.JPG', '/static/10.JPG'] %}
 
   <!-- Open Graph: 微信/QQ 等平台分享链接时显示标题、摘要和缩略图 -->
   <meta property="og:type" content="article">
@@ -690,15 +691,9 @@
     <section class="featured-section">
       <a href="{{ articles[0].url }}" target="_blank" class="featured-card">
         <div class="featured-image-wrapper">
-          {% if articles[0].image_url %}
-          <img class="featured-image" src="{{ articles[0].image_url }}" alt="{{ articles[0].title }}" loading="eager"
-            onerror="this.onerror=null;this.src='{% if '知乎' in articles[0].source_name %}/static/discover-zhihu.svg{% elif 'B站' in articles[0].source_name %}/static/discover-bilibili.svg{% else %}/static/logo.png{% endif %}';">
-          {% else %}
-          <div class="thumb-fallback">
-            {% if '知乎' in articles[0].source_name %}知乎{% elif 'B站' in articles[0].source_name %}B站{% else %}资讯{% endif
-            %}
-          </div>
-          {% endif %}
+          {% set _fi = (articles[0].title | length * 3 + articles[0].url | length) % 4 %}
+          <img class="featured-image" src="{% if articles[0].image_url %}{{ articles[0].image_url }}{% else %}{{ fallback_images[_fi] }}{% endif %}" alt="{{ articles[0].title }}" loading="eager"
+            onerror="this.onerror=null;this.src='{{ fallback_images[_fi] }}';">
         </div>
         <div class="featured-content">
           <div class="featured-source">{{ articles[0].source_name }} · {{ articles[0].published }}</div>
@@ -723,13 +718,12 @@
           {% endif %}
         </div>
         <div class="article-thumb">
+          {% set _ai = (article.title | length * 3 + article.url | length) % 4 %}
           {% if article.image_url %}
           <img src="{{ article.image_url }}" alt="{{ article.title }}" loading="lazy"
-            onerror="this.onerror=null;this.src='{% if '知乎' in article.source_name %}/static/discover-zhihu.svg{% elif 'B站' in article.source_name %}/static/discover-bilibili.svg{% else %}/static/logo.png{% endif %}';">
+            onerror="this.onerror=null;this.src='{{ fallback_images[_ai] }}';">
           {% else %}
-          <div class="thumb-fallback">
-            {% if '知乎' in article.source_name %}知乎{% elif 'B站' in article.source_name %}B站{% else %}资讯{% endif %}
-          </div>
+          <img src="{{ fallback_images[_ai] }}" alt="{{ article.title }}" loading="lazy">
           {% endif %}
         </div>
       </a>
