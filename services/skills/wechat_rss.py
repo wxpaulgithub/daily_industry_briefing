@@ -8,6 +8,7 @@
 特点：
 - 配置驱动（config_data/wechat_sources.json）
 - 轻量实现，不引入 we-mp-rss 的重功能
+- 内置授权失效检测与告警（关键词 + 全员静默 + 陈旧度）
 """
 
 from __future__ import annotations
@@ -16,12 +17,15 @@ import asyncio
 import calendar
 import logging
 import re
+import time
 from html import unescape
 
 import feedparser
 import httpx
 
+from config import RSS_SILENCE_THRESHOLD_HOURS
 from services.fetcher import Article, NewsSkill, clean_title, normalize_summary
+from services.notifier import check_keyword_in_content, send_alert
 from services.wechat_sources import get_scope_rss_sources
 
 logger = logging.getLogger(__name__)
@@ -159,6 +163,17 @@ class WeChatRssSkill(NewsSkill):
                 summary = normalize_summary(_strip_html(unescape(summary_html)))
                 if not title or not url:
                     continue
+
+                # 授权失效关键词检测：RSS 内容中出现"扫码"等字样
+                hit_kw = check_keyword_in_content(title, summary)
+                if hit_kw:
+                    self._auth_fail_keywords_detected.append(hit_kw)
+                    logger.warning(
+                        f"[公众号RSS] 授权失效信号: 在 [{getattr(src, 'name', '')}] "
+                        f"的文章中检测到关键词 [{hit_kw}]，标题: {title[:40]}"
+                    )
+                    continue  # 跳过占位提示项，不计入正常文章
+
                 published_ts, published = _extract_published(entry)
                 image_url = _extract_image(entry, summary_html)
                 articles.append(
@@ -202,6 +217,9 @@ class WeChatRssSkill(NewsSkill):
         import asyncio
         articles: list[Article] = []
         source_map: dict[str, object] = {}
+        # 重置本轮关键词检测记录
+        self._auth_fail_keywords_detected: list[str] = []
+
         for scope in ("wechat", "local"):
             for src in get_scope_rss_sources(scope):
                 key = f"{src.name}|{src.rss_url}"
@@ -230,4 +248,59 @@ class WeChatRssSkill(NewsSkill):
             f"local_articles={local_article_count}, wechat_articles={wechat_article_count}"
         )
         logger.info(f"[公众号RSS] 采集完成，获取 {len(articles)} 条原始资讯")
+
+        # ===== 授权失效检测与告警 =====
+        await self._check_auth_status(client, articles, len(source_list))
+
         return articles
+
+    async def _check_auth_status(
+        self,
+        client: httpx.AsyncClient,
+        articles: list[Article],
+        total_sources: int,
+    ) -> None:
+        """综合检测 RSS 授权状态，触发告警
+
+        检测优先级：
+        1. 关键词检测（最精准）：RSS 内容中出现"扫码"等字样
+        2. 全员静默检测：所有源在阈值时间内均无新文章
+        3. 数据陈旧度检测：最新文章距今超过 80 小时
+        """
+        # 检测 1：关键词告警
+        if self._auth_fail_keywords_detected:
+            keywords = ", ".join(set(self._auth_fail_keywords_detected))
+            await send_alert(
+                client,
+                "keyword",
+                f"RSS 内容中检测到授权失效关键词 [{keywords}]，"
+                f"we-mp-rss 可能需要重新扫码授权。",
+            )
+            return  # 最高优先级，命中后不再检测其他条件
+
+        # 无文章时才检测静默和陈旧
+        if not articles and total_sources > 0:
+            await send_alert(
+                client,
+                "silence",
+                f"所有 {total_sources} 个 RSS 源本轮均未抓取到任何文章，"
+                f"授权可能已失效。",
+            )
+            return
+
+        # 检测 3：数据陈旧度
+        if articles:
+            newest_ts = max(
+                (a.published_ts for a in articles if a.published_ts > 0),
+                default=0.0,
+            )
+            if newest_ts > 0:
+                age_hours = (time.time() - newest_ts) / 3600
+                threshold = RSS_SILENCE_THRESHOLD_HOURS
+                if age_hours > threshold:
+                    await send_alert(
+                        client,
+                        "staleness",
+                        f"所有 RSS 源最新文章已距今 {age_hours:.1f} 小时"
+                        f"（阈值 {threshold}h），授权可能已失效。",
+                    )

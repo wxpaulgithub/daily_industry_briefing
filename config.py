@@ -157,3 +157,15 @@ USE_SOGOU_WECHAT_FALLBACK = _env_bool("USE_SOGOU_WECHAT_FALLBACK", False)
 ZHIHU_COOKIE = (os.getenv("ZHIHU_COOKIE") or "").strip()
 # B站可选 Cookie（优先从 runtime/cookie.txt 读取）
 BILIBILI_COOKIE = (os.getenv("BILIBILI_COOKIE") or "").strip()
+
+# ===== RSS 授权失效告警配置 =====
+# 企业微信机器人 Webhook URL（群聊 → 添加机器人 → 复制 Webhook 地址）
+WECOM_WEBHOOK_URL = (os.getenv("WECOM_WEBHOOK_URL") or "").strip()
+# Server酱 SendKey（https://sct.ftqq.com/ 登录后获取）
+SERVERCHAN_KEY = (os.getenv("SERVERCHAN_KEY") or "").strip()
+# 告警冷却时间（小时），同一类告警在此时间段内不重复发送
+ALERT_COOLDOWN_HOURS = int(os.getenv("ALERT_COOLDOWN_HOURS") or "6")
+# RSS 全员静默阈值（小时），所有源超过此时间无更新则判定失效
+RSS_SILENCE_THRESHOLD_HOURS = float(os.getenv("RSS_SILENCE_THRESHOLD_HOURS") or "48")
+# 告警状态文件路径
+ALERT_STATUS_FILE = RUNTIME_DIR / "alert_status.json"
