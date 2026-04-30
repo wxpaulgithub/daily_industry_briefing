@@ -1,5 +1,5 @@
 """
-行业媒体类信源 Skill（RSS）
+行业媒体类信源 Skill（RSS + HTML 列表页）
 """
 from services.skills.rss_generic import RSSKeywordSkill
 
@@ -10,9 +10,13 @@ class IndustryMediaSkill(RSSKeywordSkill):
     max_per_feed = 10
 
     feed_sources = [
+        # -- 通用科技/财经（RSS） --
         {"label": "36氪资讯", "url": "https://36kr.com/feed"},
-        {"label": "虎嗅24小时", "url": "https://www.huxiu.com/rss/0.xml"},
-        {"label": "创业邦", "url": "https://www.cyzone.cn/rss.xml"},
+        # -- 工业自动化垂直门户（HTML 列表页） --
+        {"label": "中国传动网-行业资讯", "url": "https://www.chuandong.com/news/list4.html"},
+        {"label": "中国传动网-企业动态", "url": "https://www.chuandong.com/news/list8.html"},
+        {"label": "智能制造网-行业动态", "url": "https://www.gkzhan.com/news/t15/list.html"},
+        {"label": "智能制造网-市场分析", "url": "https://www.gkzhan.com/news/t14/list.html"},
     ]
 
     include_keywords = [
@@ -29,6 +33,17 @@ class IndustryMediaSkill(RSSKeywordSkill):
         "WMS",
         "WCS",
         "AGV",
+        "堆垛机",
+        "输送线",
+        "立体库",
+        "立库",
+        "仓储",
+        "物流",
+        "自动化",
+        "伺服",
+        "PLC",
+        "传感器",
+        "运动控制",
     ]
 
     exclude_keywords = [
@@ -37,5 +52,9 @@ class IndustryMediaSkill(RSSKeywordSkill):
         "影视",
         "房产",
         "游戏评测",
+        "招聘",
+        "求职",
+        "培训课程",
+        "展会预告",
     ]
 

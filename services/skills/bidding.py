@@ -23,7 +23,7 @@ class BiddingSkill(RSSKeywordSkill):
     feed_sources = [
         {"label": "中国政府采购网采购信息", "url": "https://www.ccgp.gov.cn/cggg/zygg/index.htm"},
         {"label": "中国政府采购网地方采购", "url": "https://www.ccgp.gov.cn/cggg/dfgg/index.htm"},
-        {"label": "全国公共资源交易平台", "url": "https://www.ggzy.gov.cn/information/html5/1/index.html"},
+        {"label": "全国公共资源交易平台", "url": "https://www.ggzy.gov.cn/deal/dealList.html"},
         {"label": "中国招标投标公共服务平台", "url": "https://bulletin.cebpubservice.com/"},  # 兜底 HTML 列表解析
     ]
 

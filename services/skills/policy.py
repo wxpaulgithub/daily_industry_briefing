@@ -10,9 +10,9 @@ class PolicySkill(RSSKeywordSkill):
     max_per_feed = 8
 
     feed_sources = [
-        {"label": "中国政府网政务动态", "url": "https://www.gov.cn/rss/yaowen.xml"},
+        {"label": "中国政府网政务动态", "url": "https://www.gov.cn/yaowen/liebiao/"},
         {"label": "工信部要闻", "url": "https://www.miit.gov.cn/xwdt/gxdt/index.html"},
-        {"label": "发改委要闻", "url": "https://www.ndrc.gov.cn/xwdt/xwfb/rss.xml"},
+        {"label": "发改委要闻", "url": "https://www.ndrc.gov.cn/xwdt/"},
     ]
 
     include_keywords = [
