@@ -25,7 +25,7 @@ import httpx
 
 from config import RSS_SILENCE_THRESHOLD_HOURS
 from services.fetcher import Article, NewsSkill, clean_title, normalize_summary
-from services.notifier import check_keyword_in_content, send_alert
+from services.notifier import check_keyword_in_content, send_alert, should_alert_persistent_signal
 from services.wechat_sources import get_scope_rss_sources
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,10 @@ async def _fetch_cover_image(client: httpx.AsyncClient, article_url: str) -> str
 
 
 class WeChatRssSkill(NewsSkill):
+    def __init__(self, fetch_covers: bool = True):
+        self.fetch_covers = fetch_covers
+        self._auth_fail_keywords_detected: list[str] = []
+
     @property
     def name(self) -> str:
         return "公众号RSS"
@@ -192,7 +196,7 @@ class WeChatRssSkill(NewsSkill):
                 )
 
             # 批量提取缺少封面图的文章的 og:image
-            no_image = [a for a in articles if not a.image_url]
+            no_image = [a for a in articles if not a.image_url] if self.fetch_covers else []
             if no_image:
                 tasks = [
                     _fetch_cover_image(client, a.url)
@@ -278,15 +282,22 @@ class WeChatRssSkill(NewsSkill):
             )
             return  # 最高优先级，命中后不再检测其他条件
 
-        # 无文章时才检测静默和陈旧
+        # 单轮空结果容易受网络或上游临时波动影响，需持续超过阈值后再告警。
         if not articles and total_sources > 0:
-            await send_alert(
-                client,
-                "silence",
-                f"所有 {total_sources} 个 RSS 源本轮均未抓取到任何文章，"
-                f"授权可能已失效。",
+            should_alert, elapsed_hours = should_alert_persistent_signal(
+                "wechat_rss_empty",
+                True,
+                RSS_SILENCE_THRESHOLD_HOURS,
             )
+            if should_alert:
+                await send_alert(
+                    client,
+                    "silence",
+                    f"所有 {total_sources} 个 RSS 源已连续 {elapsed_hours:.1f} 小时未抓取到任何文章，"
+                    f"授权可能已失效。",
+                )
             return
+        should_alert_persistent_signal("wechat_rss_empty", False, RSS_SILENCE_THRESHOLD_HOURS)
 
         # 检测 3：数据陈旧度
         if articles:

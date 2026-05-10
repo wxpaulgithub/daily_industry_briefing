@@ -9,8 +9,14 @@ services:
       - "8088:8088"
     environment:
       - COOKIE_FILE_PATH=/runtime/cookie.txt
-      
       - SITE_URL=https://mag.mhstar.tech
+      - WECOM_WEBHOOK_URL=${WECOM_WEBHOOK_URL:-}
+      - WECOM_MENTIONED_LIST=${WECOM_MENTIONED_LIST:-}
+      - WECOM_MENTIONED_MOBILE_LIST=${WECOM_MENTIONED_MOBILE_LIST:-}
+      - SERVERCHAN_KEY=${SERVERCHAN_KEY:-}
+      - ALERT_COOLDOWN_HOURS=${ALERT_COOLDOWN_HOURS:-6}
+      - RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS=${RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS:-8}
+      - RSS_SILENCE_THRESHOLD_HOURS=${RSS_SILENCE_THRESHOLD_HOURS:-48}
     volumes:
       - ./output:/app/output
       # 将 cookie 文件放在源码目录上一层（宿主机），避免跟代码发布耦合

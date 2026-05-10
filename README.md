@@ -1269,6 +1269,65 @@ SCHEDULE_HOUR = 7    # 每天 7 点
 SCHEDULE_MINUTE = 0
 ```
 
+微信公众号 RSS 授权健康检查已从每日采集流程中拆出，服务启动后会每 8 小时独立检查一次，不会生成页面文件。可通过环境变量调整：
+
+```powershell
+$env:RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS="8"
+$env:RSS_SILENCE_THRESHOLD_HOURS="48"
+```
+
+### 企业微信机器人告警配置
+
+1. 打开企业微信群聊，点击右上角群设置。
+2. 选择“群机器人”，添加自定义机器人。
+3. 复制机器人 Webhook 地址，形如 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...`。
+4. 在启动服务前配置环境变量：
+
+```powershell
+$env:WECOM_WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key"
+$env:WECOM_MENTIONED_LIST="@all"
+```
+
+如需只提醒指定成员，可使用手机号提醒：
+
+```powershell
+$env:WECOM_MENTIONED_MOBILE_LIST="13800000000,13900000000"
+```
+
+`WECOM_MENTIONED_LIST` 和 `WECOM_MENTIONED_MOBILE_LIST` 都是可选项。未配置时只发送普通群消息。
+
+如果使用当前项目的 Docker + GitHub Actions 自动部署，推荐在服务器部署目录放一份 `.env` 文件，`docker compose` 会自动读取。例如在服务器的：
+
+```bash
+/opt/industry_briefing/daily_industry_briefing/.env
+```
+
+写入：
+
+```env
+WECOM_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key
+WECOM_MENTIONED_LIST=@all
+ALERT_COOLDOWN_HOURS=6
+RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS=8
+RSS_SILENCE_THRESHOLD_HOURS=48
+```
+
+因为你们的部署流程会执行 `git reset --hard origin/master`，所以不要把这些敏感值直接手改进受 Git 管理的配置文件里；放在服务器本地 `.env` 最合适。
+
+### 告警测试
+
+服务启动后可调用测试接口验证企业微信或 Server酱链路：
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8088/api/alerts/test
+```
+
+也可以手动触发一次公众号 RSS 授权健康检查：
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8088/api/wechat-rss/health-check
+```
+
 ### 方式二：Windows 任务计划程序
 
 1. 按 `Win+R`，输入 `taskschd.msc`
@@ -1298,3 +1357,5 @@ python fetch.py
 | `/api/news/today` | GET | 今日资讯 JSON |
 | `/api/news/{date}` | GET | 指定日期资讯 JSON |
 | `/api/status` | GET | 服务状态（采集中/完成/可用日期列表） |
+| `/api/wechat-rss/health-check` | GET/POST | 手动执行公众号 RSS 授权健康检查 |
+| `/api/alerts/test` | GET/POST | 发送一条告警测试通知 |

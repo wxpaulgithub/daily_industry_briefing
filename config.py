@@ -161,10 +161,16 @@ BILIBILI_COOKIE = (os.getenv("BILIBILI_COOKIE") or "").strip()
 # ===== RSS 授权失效告警配置 =====
 # 企业微信机器人 Webhook URL（群聊 → 添加机器人 → 复制 Webhook 地址）
 WECOM_WEBHOOK_URL = (os.getenv("WECOM_WEBHOOK_URL") or "").strip()
+# 企业微信机器人 text 消息提醒对象。多个值用英文逗号分隔，@all 可提醒所有人
+WECOM_MENTIONED_LIST = (os.getenv("WECOM_MENTIONED_LIST") or "").strip()
+# 企业微信机器人手机号提醒对象。多个手机号用英文逗号分隔
+WECOM_MENTIONED_MOBILE_LIST = (os.getenv("WECOM_MENTIONED_MOBILE_LIST") or "").strip()
 # Server酱 SendKey（https://sct.ftqq.com/ 登录后获取）
 SERVERCHAN_KEY = (os.getenv("SERVERCHAN_KEY") or "").strip()
 # 告警冷却时间（小时），同一类告警在此时间段内不重复发送
 ALERT_COOLDOWN_HOURS = int(os.getenv("ALERT_COOLDOWN_HOURS") or "6")
+# RSS 授权健康检查间隔（小时），独立于每日简讯采集
+RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS = float(os.getenv("RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS") or "8")
 # RSS 全员静默阈值（小时），所有源超过此时间无更新则判定失效
 RSS_SILENCE_THRESHOLD_HOURS = float(os.getenv("RSS_SILENCE_THRESHOLD_HOURS") or "48")
 # 告警状态文件路径

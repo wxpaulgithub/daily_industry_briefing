@@ -12,8 +12,18 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
-from config import HOST, PORT, OUTPUT_DIR, STATIC_DIR, SCHEDULE_HOUR, SCHEDULE_MINUTE, DEFAULT_SCOPE
+from config import (
+    HOST,
+    PORT,
+    OUTPUT_DIR,
+    STATIC_DIR,
+    SCHEDULE_HOUR,
+    SCHEDULE_MINUTE,
+    DEFAULT_SCOPE,
+    RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS,
+)
 from services.fetcher import fetch_all_news, fetch_news_by_scope, Article
 from services.generator import (
     download_article_images,
@@ -23,6 +33,11 @@ from services.generator import (
     render_html,
 )
 from services.wechat_sources import source_match_scope
+from services.wechat_health import (
+    get_wechat_auth_health_status,
+    run_wechat_auth_health_check,
+    send_alert_test_message,
+)
 
 # 日志配置
 logging.basicConfig(
@@ -129,8 +144,17 @@ async def lifespan(app: FastAPI):
         id="daily_fetch",
         replace_existing=True,
     )
+    health_interval_seconds = max(int(RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS * 3600), 60)
+    scheduler.add_job(
+        run_wechat_auth_health_check,
+        IntervalTrigger(seconds=health_interval_seconds),
+        id="wechat_rss_auth_health_check",
+        replace_existing=True,
+        max_instances=1,
+    )
     scheduler.start()
     logger.info(f"定时任务已启动: 每天 {SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}")
+    logger.info(f"公众号 RSS 授权健康检查已启动: 每 {RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS:g} 小时")
 
     yield
 
@@ -252,8 +276,24 @@ async def status():
         "fetching": _is_fetching,
         "fetch_scope": _current_fetch_scope,
         "schedule": f"{SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}",
+        "wechat_rss_auth_health_check": {
+            "interval_hours": RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS,
+            **get_wechat_auth_health_status(),
+        },
         "available_dates": _get_available_dates(),
     })
+
+
+@app.api_route("/api/wechat-rss/health-check", methods=["GET", "POST"])
+async def wechat_rss_health_check():
+    """手动执行公众号 RSS 授权健康检查"""
+    return JSONResponse(await run_wechat_auth_health_check())
+
+
+@app.api_route("/api/alerts/test", methods=["GET", "POST"])
+async def alerts_test():
+    """发送告警测试通知"""
+    return JSONResponse(await send_alert_test_message())
 
 
 # ===== 工具函数 =====

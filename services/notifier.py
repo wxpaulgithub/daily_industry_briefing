@@ -24,6 +24,8 @@ from config import (
     ALERT_COOLDOWN_HOURS,
     ALERT_STATUS_FILE,
     SERVERCHAN_KEY,
+    WECOM_MENTIONED_LIST,
+    WECOM_MENTIONED_MOBILE_LIST,
     WECOM_WEBHOOK_URL,
 )
 
@@ -31,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 # 告警关键词：RSS 内容中出现以下词视为授权失效信号
 AUTH_FAIL_KEYWORDS = ["扫码", "登录过期", "重新授权", "验证码", "请重新登录"]
+
+
+def _split_csv(value: str) -> list[str]:
+    """解析逗号分隔的环境变量配置"""
+    return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 
 # ===== 冷却状态管理 =====
@@ -72,29 +79,69 @@ def _mark_alerted(alert_type: str) -> None:
     _save_status(status)
 
 
+def should_alert_persistent_signal(
+    signal_key: str,
+    active: bool,
+    threshold_hours: float,
+) -> tuple[bool, float]:
+    """判断持续性异常是否已经超过阈值"""
+    status = _load_status()
+    since_key = f"signal_since_{signal_key}"
+    now_ts = time.time()
+    if not active:
+        if since_key in status:
+            status.pop(since_key, None)
+            _save_status(status)
+        return False, 0.0
+
+    since_ts = float(status.get(since_key) or now_ts)
+    if since_key not in status:
+        status[since_key] = since_ts
+        _save_status(status)
+
+    elapsed_hours = (now_ts - since_ts) / 3600
+    return elapsed_hours >= threshold_hours, elapsed_hours
+
+
 # ===== 发送通道 =====
 
 async def _send_wecom(client: httpx.AsyncClient, content: str) -> bool:
-    """发送企业微信机器人消息（Markdown 格式）"""
+    """发送企业微信机器人消息"""
     if not WECOM_WEBHOOK_URL:
         return False
+
+    mentioned_list = _split_csv(WECOM_MENTIONED_LIST)
+    mentioned_mobile_list = _split_csv(WECOM_MENTIONED_MOBILE_LIST)
+    text = f"微信公众号 RSS 授权告警\n\n{content}\n\n请前往 we-mp-rss 后台重新扫码授权"
     payload = {
-        "msgtype": "markdown",
-        "markdown": {
-            "content": (
-                "### ⚠️ 微信公众号 RSS 授权告警\n"
-                f"> {content}\n\n"
-                f"> 请前往 we-mp-rss 后台重新扫码授权"
-            ),
+        "msgtype": "text",
+        "text": {
+            "content": text,
         },
     }
+    if mentioned_list:
+        payload["text"]["mentioned_list"] = mentioned_list
+    if mentioned_mobile_list:
+        payload["text"]["mentioned_mobile_list"] = mentioned_mobile_list
+
     try:
         resp = await client.post(WECOM_WEBHOOK_URL, json=payload, timeout=10.0)
-        ok = resp.status_code == 200
+        ok = False
+        err_info = ""
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                ok = data.get("errcode") == 0
+                if not ok:
+                    err_info = f" errcode={data.get('errcode')} errmsg={data.get('errmsg')}"
+            except Exception as e:
+                err_info = f" 响应不是 JSON: {e}"
+        else:
+            err_info = f" status={resp.status_code}"
         if ok:
             logger.info("[Notifier] 企业微信告警发送成功")
         else:
-            logger.warning(f"[Notifier] 企业微信告警响应异常: {resp.status_code}")
+            logger.warning(f"[Notifier] 企业微信告警响应异常:{err_info}")
         return ok
     except Exception as e:
         logger.warning(f"[Notifier] 企业微信发送失败: {e}")
@@ -114,6 +161,12 @@ async def _send_serverchan(client: httpx.AsyncClient, title: str, content: str) 
         )
         ok = resp.status_code == 200
         if ok:
+            try:
+                data = resp.json()
+                ok = data.get("code") in (0, None)
+            except Exception:
+                pass
+        if ok:
             logger.info("[Notifier] Server酱告警发送成功")
         else:
             logger.warning(f"[Notifier] Server酱告警响应异常: {resp.status_code}")
@@ -129,6 +182,8 @@ async def send_alert(
     client: httpx.AsyncClient,
     alert_type: str,
     message: str,
+    *,
+    force: bool = False,
 ) -> bool:
     """发送告警消息（自动冷却去重）
 
@@ -140,7 +195,7 @@ async def send_alert(
     返回:
         是否成功发送了至少一条通知
     """
-    if _is_in_cooldown(alert_type):
+    if (not force) and _is_in_cooldown(alert_type):
         logger.debug(f"[Notifier] 告警 [{alert_type}] 在冷却期内，跳过")
         return False
 
@@ -155,15 +210,27 @@ async def send_alert(
         if await _send_serverchan(client, title, message):
             sent = True
 
-    if sent:
+    if sent and not force:
         _mark_alerted(alert_type)
         logger.warning(f"[Notifier] 告警已发送 [{alert_type}]: {message}")
+    elif sent:
+        logger.warning(f"[Notifier] 测试告警已发送 [{alert_type}]: {message}")
     elif not WECOM_WEBHOOK_URL and not SERVERCHAN_KEY:
         # 未配置任何通道，仅做日志记录
         logger.warning(
             f"[Notifier] 检测到授权异常但未配置告警通道 [{alert_type}]: {message}"
         )
     return sent
+
+
+async def send_test_alert(client: httpx.AsyncClient) -> bool:
+    """发送测试通知，绕过冷却且不写入告警状态"""
+    return await send_alert(
+        client,
+        "test",
+        "这是一条测试通知，用于验证 RSS 授权告警通道是否可达。",
+        force=True,
+    )
 
 
 def check_keyword_in_content(title: str, summary: str) -> str | None:
