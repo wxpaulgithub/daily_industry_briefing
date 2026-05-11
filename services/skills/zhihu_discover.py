@@ -10,9 +10,14 @@ from urllib.parse import quote_plus
 
 import httpx
 
-from config import ZHIHU_COOKIE
+from config import (
+    ZHIHU_COOKIE,
+    ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES,
+    ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES,
+)
 from services.cookie_store import get_site_cookie
 from services.fetcher import Article, clean_title, normalize_summary
+from services.notifier import send_alert, should_alert_persistent_signal
 from services.skills.discover_base import DiscoverSearchSkillBase
 
 logger = logging.getLogger(__name__)
@@ -25,6 +30,8 @@ class ZhihuDiscoverSkill(DiscoverSearchSkillBase):
         self._cookie = ""
         self._cookie_checked_at = 0.0
         self._cookie_valid: bool | None = None
+        self._cookie_last_status_code: int | None = None
+        self._cookie_last_error = ""
 
     @property
     def name(self) -> str:
@@ -40,20 +47,28 @@ class ZhihuDiscoverSkill(DiscoverSearchSkillBase):
         ]
 
     async def _ensure_cookie_state(self, client: httpx.AsyncClient) -> None:
-        """检测 cookie 登录态是否可用（缓存 10 分钟）"""
+        """检测 cookie 登录态是否可用（带缓存与告警）"""
         current_cookie = get_site_cookie("zhihu", fallback=ZHIHU_COOKIE)
         if current_cookie != self._cookie:
             self._cookie = current_cookie
             self._cookie_checked_at = 0.0
             self._cookie_valid = None
+            self._cookie_last_status_code = None
+            self._cookie_last_error = ""
 
+        threshold_hours = max(ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES / 60, 1 / 60)
         if not self._cookie:
             self._cookie_valid = False
+            self._cookie_last_status_code = None
+            self._cookie_last_error = ""
+            should_alert_persistent_signal("zhihu_cookie_invalid", False, threshold_hours)
             return
+
         now = time.time()
-        if now - self._cookie_checked_at < 600:
+        if now - self._cookie_checked_at < max(ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES * 60, 60):
             return
         self._cookie_checked_at = now
+        self._cookie_last_error = ""
         try:
             resp = await client.get(
                 "https://www.zhihu.com/api/v4/me",
@@ -64,14 +79,57 @@ class ZhihuDiscoverSkill(DiscoverSearchSkillBase):
                 },
                 timeout=10.0,
             )
+            self._cookie_last_status_code = resp.status_code
             self._cookie_valid = resp.status_code == 200
             if self._cookie_valid:
+                should_alert_persistent_signal("zhihu_cookie_invalid", False, threshold_hours)
                 logger.info(f"[{self.name}] 检测到知乎登录态可用（cookie）")
-            else:
-                logger.warning(f"[{self.name}] 知乎登录态不可用，状态码 {resp.status_code}")
+                return
+
+            logger.warning(f"[{self.name}] 知乎登录态不可用，状态码 {resp.status_code}")
+            should_alert, elapsed_hours = should_alert_persistent_signal(
+                "zhihu_cookie_invalid",
+                True,
+                threshold_hours,
+            )
+            if should_alert:
+                elapsed_minutes = elapsed_hours * 60
+                await send_alert(
+                    client,
+                    "zhihu_cookie_invalid",
+                    (
+                        f"知乎登录态 Cookie 已连续 {elapsed_minutes:.0f} 分钟不可用"
+                        f"（最近一次状态码 {resp.status_code}），发现页已降级到 HTML/Bing 兜底，"
+                        f"知乎来源的结果质量和覆盖可能下降。"
+                    ),
+                    title="知乎 Cookie 失效告警",
+                    action_hint="请更新 runtime/cookie.txt 中 [zhihu] 段的 Cookie，或执行 python scripts/update_cookie.py --site zhihu",
+                )
         except Exception as e:
             self._cookie_valid = False
+            self._cookie_last_status_code = None
+            self._cookie_last_error = repr(e)
             logger.warning(f"[{self.name}] 知乎登录态检测失败: {e}")
+
+    async def check_cookie_health(self, client: httpx.AsyncClient) -> dict:
+        """返回当前知乎 Cookie 健康状态，供独立健康检查复用"""
+        await self._ensure_cookie_state(client)
+        status = "not_configured"
+        if self._cookie:
+            if self._cookie_last_error:
+                status = "check_failed"
+            elif self._cookie_valid:
+                status = "valid"
+            else:
+                status = "invalid"
+        return {
+            "status": status,
+            "has_cookie": bool(self._cookie),
+            "valid": self._cookie_valid,
+            "last_status_code": self._cookie_last_status_code,
+            "last_error": self._cookie_last_error,
+            "checked_at": int(time.time()),
+        }
 
     @staticmethod
     def _normalize_target_url(target: dict) -> str:

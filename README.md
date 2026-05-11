@@ -328,7 +328,7 @@ GET https://weixin.sogou.com/weixin
 
 **Cookie 状态检测**：
 
-系统每 10 分钟检测一次知乎 Cookie 是否有效：
+系统会按 `ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES`（默认 360 分钟，即每 6 小时）独立检测一次知乎 Cookie 是否有效：
 
 ```
 GET https://www.zhihu.com/api/v4/me
@@ -1176,10 +1176,12 @@ python scripts\update_cookie.py --site both
 python scripts\read_cookie_file.py
 ```
 
+系统还会独立执行知乎 Cookie 健康检查，并在 `Cookie` 持续失效超过 `ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES` 后自动推送“知乎 Cookie 失效告警”。
+
 ### 常见问题
 
 **Q: Cookie 多久过期？**
-知乎通常几天到几周。失效后日志出现 `知乎登录态不可用，状态码 401`，重新导出即可。
+知乎通常几天到几周。失效后日志会出现 `知乎登录态不可用，状态码 401`，并在持续失效超过阈值后自动推送告警；重新导出并更新 `runtime/cookie.txt` 即可。
 
 **Q: B站 Cookie 必须配置吗？**
 不是必须的。B站搜索 API 对匿名请求有一定容忍度，配置 Cookie 只是提高成功率。
@@ -1269,11 +1271,13 @@ SCHEDULE_HOUR = 7    # 每天 7 点
 SCHEDULE_MINUTE = 0
 ```
 
-微信公众号 RSS 授权健康检查已从每日采集流程中拆出，服务启动后会每 8 小时独立检查一次，不会生成页面文件。可通过环境变量调整：
+微信公众号 RSS 授权健康检查已从每日采集流程中拆出，服务启动后会每 8 小时独立检查一次，不会生成页面文件。知乎 Cookie 健康检查也会独立运行，默认每 6 小时主动验证一次登录态。可通过环境变量调整：
 
 ```powershell
 $env:RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS="8"
 $env:RSS_SILENCE_THRESHOLD_HOURS="48"
+$env:ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES="360"
+$env:ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES="1440"
 ```
 
 ### 企业微信机器人告警配置
@@ -1310,6 +1314,8 @@ WECOM_MENTIONED_LIST=@all
 ALERT_COOLDOWN_HOURS=6
 RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS=8
 RSS_SILENCE_THRESHOLD_HOURS=48
+ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES=360
+ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES=1440
 ```
 
 因为你们的部署流程会执行 `git reset --hard origin/master`，所以不要把这些敏感值直接手改进受 Git 管理的配置文件里；放在服务器本地 `.env` 最合适。
@@ -1326,6 +1332,12 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8088/api/alerts/test
 
 ```powershell
 Invoke-RestMethod -Method Post http://127.0.0.1:8088/api/wechat-rss/health-check
+```
+
+也可以手动触发一次知乎 Cookie 健康检查：
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8088/api/zhihu-cookie/health-check
 ```
 
 ### 方式二：Windows 任务计划程序
@@ -1358,4 +1370,5 @@ python fetch.py
 | `/api/news/{date}` | GET | 指定日期资讯 JSON |
 | `/api/status` | GET | 服务状态（采集中/完成/可用日期列表） |
 | `/api/wechat-rss/health-check` | GET/POST | 手动执行公众号 RSS 授权健康检查 |
+| `/api/zhihu-cookie/health-check` | GET/POST | 手动执行知乎 Cookie 健康检查 |
 | `/api/alerts/test` | GET/POST | 发送一条告警测试通知 |

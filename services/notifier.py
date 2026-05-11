@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-from pathlib import Path
 
 import httpx
 
@@ -105,14 +104,21 @@ def should_alert_persistent_signal(
 
 # ===== 发送通道 =====
 
-async def _send_wecom(client: httpx.AsyncClient, content: str) -> bool:
+async def _send_wecom(
+    client: httpx.AsyncClient,
+    title: str,
+    content: str,
+    action_hint: str = "",
+) -> bool:
     """发送企业微信机器人消息"""
     if not WECOM_WEBHOOK_URL:
         return False
 
     mentioned_list = _split_csv(WECOM_MENTIONED_LIST)
     mentioned_mobile_list = _split_csv(WECOM_MENTIONED_MOBILE_LIST)
-    text = f"微信公众号 RSS 授权告警\n\n{content}\n\n请前往 we-mp-rss 后台重新扫码授权"
+    text = f"{title}\n\n{content}"
+    if action_hint:
+        text += f"\n\n{action_hint}"
     payload = {
         "msgtype": "text",
         "text": {
@@ -184,30 +190,22 @@ async def send_alert(
     message: str,
     *,
     force: bool = False,
+    title: str = "微信公众号 RSS 授权告警",
+    action_hint: str = "请前往 we-mp-rss 后台重新扫码授权",
 ) -> bool:
-    """发送告警消息（自动冷却去重）
-
-    参数:
-        client: 复用的 httpx 异步客户端
-        alert_type: 告警类型标识（如 "keyword"、"silence"），用于独立控制冷却
-        message: 告警内容描述
-
-    返回:
-        是否成功发送了至少一条通知
-    """
+    """发送告警消息（自动冷却去重）"""
     if (not force) and _is_in_cooldown(alert_type):
         logger.debug(f"[Notifier] 告警 [{alert_type}] 在冷却期内，跳过")
         return False
 
     sent = False
-    title = "微信公众号 RSS 授权告警"
+    desp = message if not action_hint else f"{message}\n\n{action_hint}"
 
-    # 尝试所有配置的通道
     if WECOM_WEBHOOK_URL:
-        if await _send_wecom(client, message):
+        if await _send_wecom(client, title, message, action_hint):
             sent = True
     if SERVERCHAN_KEY:
-        if await _send_serverchan(client, title, message):
+        if await _send_serverchan(client, title, desp):
             sent = True
 
     if sent and not force:
@@ -216,7 +214,6 @@ async def send_alert(
     elif sent:
         logger.warning(f"[Notifier] 测试告警已发送 [{alert_type}]: {message}")
     elif not WECOM_WEBHOOK_URL and not SERVERCHAN_KEY:
-        # 未配置任何通道，仅做日志记录
         logger.warning(
             f"[Notifier] 检测到授权异常但未配置告警通道 [{alert_type}]: {message}"
         )
@@ -234,11 +231,7 @@ async def send_test_alert(client: httpx.AsyncClient) -> bool:
 
 
 def check_keyword_in_content(title: str, summary: str) -> str | None:
-    """检查文章标题/摘要中是否包含授权失效关键词
-
-    返回:
-        命中的关键词，未命中返回 None
-    """
+    """检查文章标题/摘要中是否包含授权失效关键词"""
     text = f"{title} {summary}".lower()
     for kw in AUTH_FAIL_KEYWORDS:
         if kw.lower() in text:

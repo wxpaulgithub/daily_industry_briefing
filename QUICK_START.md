@@ -52,6 +52,8 @@
 
 WERSS 通过微信扫码登录获取授权，但微信的 Session 有效期只有约 **80 小时（3-5 天）**。过期后 RSS Feed 停止更新，公众号页将无新内容。
 
+项目已内置 **独立的公众号 RSS 授权健康检查**，服务启动后会按 `RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS` 周期主动检查；如果检测到 RSS 关键字异常、持续静默或整体陈旧，会通过企业微信机器人或 Server酱发送告警。
+
 | 维持方式 | 自动化程度 | 说明 |
 |---------|----------|------|
 | 多账号自动切换 | 半自动 | WERSS 内置功能。绑定至少 2 个公众号管理员，系统每天自动切换账号延长有效期，可将续期间隔延长到数周。但遇到微信风控（滑块验证、异地校验）仍需人工扫码。 |
@@ -80,6 +82,8 @@ python scripts/read_cookie_file.py
 ```
 
 Cookie 写入 `runtime/cookie.txt`，修改后无需重启服务。
+
+补充说明：系统会按 `ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES` 周期独立检测知乎登录态，默认每 6 小时校验一次 `https://www.zhihu.com/api/v4/me`。如果 Cookie 持续失效超过 `ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES`（默认 1 天），会自动通过企业微信机器人或 Server酱推送告警；在此期间发现页仍会降级到 HTML + Bing 兜底继续运行。
 
 ### 2.4 运维成本总结
 
@@ -352,7 +356,10 @@ MAX_ARTICLES_WECHAT = 20     # 公众号页
 WECOM_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...   # 企业微信机器人
 SERVERCHAN_KEY=SCT...                                                          # Server酱
 ALERT_COOLDOWN_HOURS=6                                                         # 告警冷却（避免重复推送）
-RSS_SILENCE_THRESHOLD_HOURS=48                                                 # 静默多久触发告警
+RSS_SILENCE_THRESHOLD_HOURS=48                                                 # RSS 静默多久触发告警
+RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS=8                                         # we-mp-rss 独立健康检查周期
+ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES=360                                         # 知乎 Cookie 检查周期
+ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES=1440                                        # 知乎 Cookie 持续失效多久后推送告警
 ```
 
 ### 5.4 Python 版本

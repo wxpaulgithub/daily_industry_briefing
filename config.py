@@ -155,6 +155,10 @@ def _env_bool(name: str, default: bool) -> bool:
 USE_SOGOU_WECHAT_FALLBACK = _env_bool("USE_SOGOU_WECHAT_FALLBACK", False)
 # 建议通过环境变量注入，不要写死到代码库
 ZHIHU_COOKIE = (os.getenv("ZHIHU_COOKIE") or "").strip()
+# 知乎 Cookie 有效性检测间隔（分钟）
+ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES = float(os.getenv("ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES") or "360")
+# 知乎 Cookie 持续失效多久后推送告警（分钟）
+ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES = float(os.getenv("ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES") or "1440")
 # B站可选 Cookie（优先从 runtime/cookie.txt 读取）
 BILIBILI_COOKIE = (os.getenv("BILIBILI_COOKIE") or "").strip()
 
@@ -175,3 +179,4 @@ RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS = float(os.getenv("RSS_AUTH_HEALTH_CHECK_IN
 RSS_SILENCE_THRESHOLD_HOURS = float(os.getenv("RSS_SILENCE_THRESHOLD_HOURS") or "48")
 # 告警状态文件路径
 ALERT_STATUS_FILE = RUNTIME_DIR / "alert_status.json"
+

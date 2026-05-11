@@ -23,6 +23,7 @@ from config import (
     SCHEDULE_MINUTE,
     DEFAULT_SCOPE,
     RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS,
+    ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES,
 )
 from services.fetcher import fetch_all_news, fetch_news_by_scope, Article
 from services.generator import (
@@ -37,6 +38,10 @@ from services.wechat_health import (
     get_wechat_auth_health_status,
     run_wechat_auth_health_check,
     send_alert_test_message,
+)
+from services.zhihu_health import (
+    get_zhihu_cookie_health_status,
+    run_zhihu_cookie_health_check,
 )
 
 # 日志配置
@@ -152,9 +157,18 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
         max_instances=1,
     )
+    zhihu_health_interval_seconds = max(int(ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES * 60), 60)
+    scheduler.add_job(
+        run_zhihu_cookie_health_check,
+        IntervalTrigger(seconds=zhihu_health_interval_seconds),
+        id="zhihu_cookie_health_check",
+        replace_existing=True,
+        max_instances=1,
+    )
     scheduler.start()
     logger.info(f"定时任务已启动: 每天 {SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}")
     logger.info(f"公众号 RSS 授权健康检查已启动: 每 {RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS:g} 小时")
+    logger.info(f"知乎 Cookie 健康检查已启动: 每 {ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES:g} 分钟")
 
     yield
 
@@ -280,6 +294,10 @@ async def status():
             "interval_hours": RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS,
             **get_wechat_auth_health_status(),
         },
+        "zhihu_cookie_health_check": {
+            "interval_minutes": ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES,
+            **get_zhihu_cookie_health_status(),
+        },
         "available_dates": _get_available_dates(),
     })
 
@@ -288,6 +306,12 @@ async def status():
 async def wechat_rss_health_check():
     """手动执行公众号 RSS 授权健康检查"""
     return JSONResponse(await run_wechat_auth_health_check())
+
+
+@app.api_route("/api/zhihu-cookie/health-check", methods=["GET", "POST"])
+async def zhihu_cookie_health_check():
+    """手动执行知乎 Cookie 健康检查"""
+    return JSONResponse(await run_zhihu_cookie_health_check())
 
 
 @app.api_route("/api/alerts/test", methods=["GET", "POST"])
