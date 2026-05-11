@@ -48,13 +48,13 @@ jobs:
             git reset --hard origin/master
 
             echo ">>> 步骤 2/2: 构建并重启 Docker 容器..."
-            docker compose down
-            docker compose up -d --build --force-recreate --remove-orphans
-            docker compose ps
-            CONTAINER_ID="$(docker compose ps -q news)"
+            docker compose --env-file /opt/industry_briefing/.env down
+            docker compose --env-file /opt/industry_briefing/.env up -d --build --force-recreate --remove-orphans
+            docker compose --env-file /opt/industry_briefing/.env ps
+            CONTAINER_ID="$(docker compose --env-file /opt/industry_briefing/.env ps -q news)"
             if [ -z "$CONTAINER_ID" ]; then
               echo "错误：未找到 news 容器"
-              docker compose logs news --tail 200 || true
+              docker compose --env-file /opt/industry_briefing/.env logs news --tail 200 || true
               exit 1
             fi
 
@@ -69,7 +69,7 @@ jobs:
 
               if [ "$STATUS" = "unhealthy" ] || [ "$STATUS" = "exited" ] || [ "$STATUS" = "dead" ]; then
                 echo "错误：容器状态异常：$STATUS"
-                docker compose logs news --tail 200 || true
+                docker compose --env-file /opt/industry_briefing/.env logs news --tail 200 || true
                 exit 1
               fi
 
@@ -79,7 +79,7 @@ jobs:
             FINAL_STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER_ID")"
             if [ "$FINAL_STATUS" != "healthy" ]; then
               echo "错误：等待健康检查超时，最终状态：$FINAL_STATUS"
-              docker compose logs news --tail 200 || true
+              docker compose --env-file /opt/industry_briefing/.env logs news --tail 200 || true
               exit 1
             fi
 
