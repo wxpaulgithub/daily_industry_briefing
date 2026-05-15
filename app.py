@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from config import (
@@ -55,6 +56,8 @@ logger = logging.getLogger(__name__)
 # 全局状态
 _is_fetching = False
 _current_fetch_scope = "all"
+_next_wechat_health_run = ""
+_WECHAT_HEALTH_JOB_ID = "wechat_rss_auth_health_check"
 
 
 def _normalize_wechat_kind(v: str | None) -> str:
@@ -139,6 +142,37 @@ async def _do_fetch(scope: str | None = None):
         _current_fetch_scope = "all"
 
 
+def _schedule_wechat_health_check(
+    scheduler: AsyncIOScheduler,
+    *,
+    delay_hours: float | None = None,
+    delay_seconds: int | None = None,
+) -> None:
+    """按动态间隔安排下一次公众号 RSS 授权健康检查"""
+    global _next_wechat_health_run
+    if delay_seconds is None:
+        hours = RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS if delay_hours is None else delay_hours
+        delay_seconds = max(int(hours * 3600), 300)
+    run_at = datetime.now() + timedelta(seconds=delay_seconds)
+    _next_wechat_health_run = run_at.strftime("%Y-%m-%d %H:%M:%S")
+    scheduler.add_job(
+        _run_and_reschedule_wechat_health_check,
+        DateTrigger(run_date=run_at),
+        args=[scheduler],
+        id=_WECHAT_HEALTH_JOB_ID,
+        replace_existing=True,
+        max_instances=1,
+    )
+    logger.info(f"下次公众号 RSS 授权健康检查: {_next_wechat_health_run}")
+
+
+async def _run_and_reschedule_wechat_health_check(scheduler: AsyncIOScheduler) -> None:
+    """执行一次健康检查，并根据 token 剩余时间安排下一次"""
+    result = await run_wechat_auth_health_check()
+    next_hours = result.get("next_check_interval_hours") or RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS
+    _schedule_wechat_health_check(scheduler, delay_hours=float(next_hours))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动定时任务"""
@@ -149,14 +183,7 @@ async def lifespan(app: FastAPI):
         id="daily_fetch",
         replace_existing=True,
     )
-    health_interval_seconds = max(int(RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS * 3600), 60)
-    scheduler.add_job(
-        run_wechat_auth_health_check,
-        IntervalTrigger(seconds=health_interval_seconds),
-        id="wechat_rss_auth_health_check",
-        replace_existing=True,
-        max_instances=1,
-    )
+    _schedule_wechat_health_check(scheduler, delay_seconds=60)
     zhihu_health_interval_seconds = max(int(ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES * 60), 60)
     scheduler.add_job(
         run_zhihu_cookie_health_check,
@@ -167,7 +194,7 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     logger.info(f"定时任务已启动: 每天 {SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}")
-    logger.info(f"公众号 RSS 授权健康检查已启动: 每 {RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS:g} 小时")
+    logger.info("公众号 RSS 授权健康检查已启动: 根据 token 预计到期时间动态调度")
     logger.info(f"知乎 Cookie 健康检查已启动: 每 {ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES:g} 分钟")
 
     yield
@@ -291,7 +318,8 @@ async def status():
         "fetch_scope": _current_fetch_scope,
         "schedule": f"{SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}",
         "wechat_rss_auth_health_check": {
-            "interval_hours": RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS,
+            "fallback_interval_hours": RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS,
+            "next_run": _next_wechat_health_run,
             **get_wechat_auth_health_status(),
         },
         "zhihu_cookie_health_check": {

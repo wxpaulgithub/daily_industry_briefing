@@ -177,6 +177,16 @@ ALERT_COOLDOWN_HOURS = int(os.getenv("ALERT_COOLDOWN_HOURS") or "6")
 RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS = float(os.getenv("RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS") or "8")
 # RSS 全员静默阈值（小时），所有源超过此时间无更新则判定失效
 RSS_SILENCE_THRESHOLD_HOURS = float(os.getenv("RSS_SILENCE_THRESHOLD_HOURS") or "48")
+# we-mp-rss 授权管理中的 token 预计到期时间接口，返回 JSON 即可
+WERSS_TOKEN_EXPIRY_URL = (os.getenv("WERSS_TOKEN_EXPIRY_URL") or "").strip()
+# 可选鉴权头，例如 Bearer xxx 或 AK-SK xxx:yyy
+WERSS_TOKEN_EXPIRY_AUTHORIZATION = (os.getenv("WERSS_TOKEN_EXPIRY_AUTHORIZATION") or "").strip()
+# token 预计到期预警阈值（小时），默认 12h 和 3h
+WERSS_TOKEN_WARNING_HOURS = [
+    float(x.strip())
+    for x in (os.getenv("WERSS_TOKEN_WARNING_HOURS") or "12,3").split(",")
+    if x.strip()
+]
 # 告警状态文件路径
 ALERT_STATUS_FILE = RUNTIME_DIR / "alert_status.json"
 

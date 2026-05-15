@@ -78,6 +78,19 @@ def _mark_alerted(alert_type: str) -> None:
     _save_status(status)
 
 
+def has_sent_once_for_marker(alert_key: str, marker: str) -> bool:
+    """检查某个标记周期内的一次性提醒是否已发送"""
+    status = _load_status()
+    return status.get(f"once_marker_{alert_key}") == marker
+
+
+def mark_sent_once_for_marker(alert_key: str, marker: str) -> None:
+    """标记某个标记周期内的一次性提醒已发送"""
+    status = _load_status()
+    status[f"once_marker_{alert_key}"] = marker
+    _save_status(status)
+
+
 def should_alert_persistent_signal(
     signal_key: str,
     active: bool,
@@ -212,7 +225,7 @@ async def send_alert(
         _mark_alerted(alert_type)
         logger.warning(f"[Notifier] 告警已发送 [{alert_type}]: {message}")
     elif sent:
-        logger.warning(f"[Notifier] 测试告警已发送 [{alert_type}]: {message}")
+        logger.warning(f"[Notifier] 告警已发送（绕过冷却）[{alert_type}]: {message}")
     elif not WECOM_WEBHOOK_URL and not SERVERCHAN_KEY:
         logger.warning(
             f"[Notifier] 检测到授权异常但未配置告警通道 [{alert_type}]: {message}"

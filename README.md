@@ -1271,13 +1271,21 @@ SCHEDULE_HOUR = 7    # 每天 7 点
 SCHEDULE_MINUTE = 0
 ```
 
-微信公众号 RSS 授权健康检查已从每日采集流程中拆出，服务启动后会每 8 小时独立检查一次，不会生成页面文件。知乎 Cookie 健康检查也会独立运行，默认每 6 小时主动验证一次登录态。可通过环境变量调整：
+微信公众号 RSS 授权健康检查已从每日采集流程中拆出，不会生成页面文件。默认可按固定间隔运行；如果配置了 we-mp-rss 授权到期时间接口，会根据 token 预计到期时间动态调整检查频率。可通过环境变量调整：
+知乎 Cookie 健康检查也会独立运行，默认每 6 小时主动验证一次登录态。可通过环境变量调整：
 
 ```powershell
 $env:RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS="8"
 $env:RSS_SILENCE_THRESHOLD_HOURS="48"
 $env:ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES="360"
 $env:ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES="1440"
+```
+
+配置 we-mp-rss 授权到期时间接口后，健康检查会在到期前 12 小时、3 小时发送预警。未配置该接口时，系统回退到 `RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS` 固定间隔。
+
+```powershell
+$env:WERSS_TOKEN_EXPIRY_URL="http://你的-we-mp-rss/token-expiry-api"
+$env:WERSS_TOKEN_WARNING_HOURS="12,3"
 ```
 
 ### 企业微信机器人告警配置
@@ -1316,6 +1324,8 @@ RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS=8
 RSS_SILENCE_THRESHOLD_HOURS=48
 ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES=360
 ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES=1440
+WERSS_TOKEN_EXPIRY_URL=http://你的-we-mp-rss/token-expiry-api
+WERSS_TOKEN_WARNING_HOURS=12,3
 ```
 
 因为你们的部署流程会执行 `git reset --hard origin/master`，所以不要把这些敏感值直接手改进受 Git 管理的配置文件里；放在服务器本地 `.env` 最合适。
