@@ -52,7 +52,14 @@
 
 WERSS 通过微信扫码登录获取授权，但微信的 Session 有效期只有约 **80 小时（3-5 天）**。过期后 RSS Feed 停止更新，公众号页将无新内容。
 
-项目已内置 **独立的公众号 RSS 授权健康检查**，服务启动后会按 `RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS` 周期主动检查；如果检测到 RSS 关键字异常、持续静默或整体陈旧，会通过企业微信机器人或 Server酱发送告警。
+项目已内置 **独立的公众号 RSS 授权健康检查**。如果配置了 `we-mp-rss` 授权管理中的 token 预计到期时间接口，系统会：
+
+- 在距离到期 **12 小时**时发送第一次预警
+- 在距离到期 **3 小时**时发送第二次预警
+- 根据距离到期时间动态调整 RSS 异常检测频率：
+  `>24h 每12h`、`24h~6h 每6h`、`6h内 每3h`、`已过期 每3h`
+
+如果没有配置 token 到期接口，系统会回退到 `RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS` 固定周期检查。无论采用哪种模式，只要检测到 RSS 关键字异常、持续静默或整体陈旧，都会通过企业微信机器人或 Server酱发送确认告警。
 
 | 维持方式 | 自动化程度 | 说明 |
 |---------|----------|------|
@@ -348,7 +355,7 @@ MAX_ARTICLES_WECHAT = 20     # 公众号页
 
 ### 5.3 失效告警配置
 
-项目内置了 RSS 源失效的自动检测和告警机制（详见 `wechat_rss_自动维持有效的说明.md`）。当 WERSS 授权过期导致 RSS Feed 停更时，系统可通过企业微信机器人或 Server酱 推送告警。
+项目内置了 RSS 源失效的自动检测和告警机制（详见 `wechat_rss_自动维持有效的说明.md`）。当 WERSS 授权过期导致 RSS Feed 停更时，系统可通过企业微信机器人或 Server酱推送预警和确认告警。
 
 配置方式 -- 在部署环境设置以下环境变量：
 
@@ -358,8 +365,10 @@ SERVERCHAN_KEY=SCT...                                                          #
 ALERT_COOLDOWN_HOURS=6                                                         # 告警冷却（避免重复推送）
 RSS_SILENCE_THRESHOLD_HOURS=48                                                 # RSS 静默多久触发告警
 RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS=8                                         # we-mp-rss 独立健康检查周期
-ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES=360                                         # 知乎 Cookie 检查周期
-ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES=1440                                        # 知乎 Cookie 持续失效多久后推送告警
+WERSS_TOKEN_EXPIRY_URL=http://你的-we-mp-rss/token-expiry-api                  # we-mp-rss token 预计到期时间接口
+WERSS_TOKEN_WARNING_HOURS=12,3                                                 # 预计到期预警阈值（小时）
+ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES=360                                        # 知乎 Cookie 检查周期
+ZHIHU_COOKIE_ALERT_THRESHOLD_MINUTES=1440                                      # 知乎 Cookie 持续失效多久后推送告警
 ```
 
 ### 5.4 Python 版本
