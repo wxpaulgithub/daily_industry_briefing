@@ -177,6 +177,10 @@ ALERT_COOLDOWN_HOURS = int(os.getenv("ALERT_COOLDOWN_HOURS") or "6")
 RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS = float(os.getenv("RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS") or "8")
 # RSS 全员静默阈值（小时），所有源超过此时间无更新则判定失效
 RSS_SILENCE_THRESHOLD_HOURS = float(os.getenv("RSS_SILENCE_THRESHOLD_HOURS") or "48")
+# 关键词命中时，本轮正常文章数达到该值即视为 feed 健康，将关键词命中判为误报（不发送告警）
+# 原理：授权失效时 we-mp-rss 会退化为只返回占位提示项，正常文章数为 0；
+# 若仍能抓到大量正常文章，说明授权正常，关键词命中通常是某篇文章标题误含“扫码”等字样。
+RSS_KEYWORD_HEALTHY_MIN_ARTICLES = int(os.getenv("RSS_KEYWORD_HEALTHY_MIN_ARTICLES") or "5")
 # we-mp-rss 授权管理中的 token 预计到期时间接口，返回 JSON 即可
 WERSS_TOKEN_EXPIRY_URL = (os.getenv("WERSS_TOKEN_EXPIRY_URL") or "").strip()
 # 可选鉴权头，例如 Bearer xxx 或 AK-SK xxx:yyy

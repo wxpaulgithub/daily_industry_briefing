@@ -23,7 +23,7 @@ from html import unescape
 import feedparser
 import httpx
 
-from config import RSS_SILENCE_THRESHOLD_HOURS
+from config import RSS_KEYWORD_HEALTHY_MIN_ARTICLES, RSS_SILENCE_THRESHOLD_HOURS
 from services.fetcher import Article, NewsSkill, clean_title, normalize_summary
 from services.notifier import check_keyword_in_content, send_alert, should_alert_persistent_signal
 from services.wechat_sources import get_scope_rss_sources
@@ -118,7 +118,8 @@ async def _fetch_cover_image(client: httpx.AsyncClient, article_url: str) -> str
 class WeChatRssSkill(NewsSkill):
     def __init__(self, fetch_covers: bool = True):
         self.fetch_covers = fetch_covers
-        self._auth_fail_keywords_detected: list[str] = []
+        # 本轮关键词命中详情：[{"keyword", "source", "title"}]，用于误报判断与告警文案
+        self._auth_fail_hits: list[dict] = []
 
     @property
     def name(self) -> str:
@@ -168,10 +169,16 @@ class WeChatRssSkill(NewsSkill):
                 if not title or not url:
                     continue
 
-                # 授权失效关键词检测：RSS 内容中出现"扫码"等字样
+                # 授权失效关键词检测：RSS 内容中出现"扫码登录/登录过期"等占位语
                 hit_kw = check_keyword_in_content(title, summary)
                 if hit_kw:
-                    self._auth_fail_keywords_detected.append(hit_kw)
+                    self._auth_fail_hits.append(
+                        {
+                            "keyword": hit_kw,
+                            "source": getattr(src, "name", ""),
+                            "title": title[:40],
+                        }
+                    )
                     logger.warning(
                         f"[公众号RSS] 授权失效信号: 在 [{getattr(src, 'name', '')}] "
                         f"的文章中检测到关键词 [{hit_kw}]，标题: {title[:40]}"
@@ -222,7 +229,8 @@ class WeChatRssSkill(NewsSkill):
         articles: list[Article] = []
         source_map: dict[str, object] = {}
         # 重置本轮关键词检测记录
-        self._auth_fail_keywords_detected: list[str] = []
+        # 本轮关键词命中详情：[{"keyword", "source", "title"}]，用于误报判断与告警文案
+        self._auth_fail_hits: list[dict] = []
 
         for scope in ("wechat", "local"):
             for src in get_scope_rss_sources(scope):
@@ -267,20 +275,40 @@ class WeChatRssSkill(NewsSkill):
         """综合检测 RSS 授权状态，触发告警
 
         检测优先级：
-        1. 关键词检测（最精准）：RSS 内容中出现"扫码"等字样
+        1. 关键词检测：RSS 内容中出现"扫码登录/登录过期"等占位语。命中后还需结合
+           本轮正常文章数判断——文章数充足则视为单篇文章误命中（不告警），仅当
+           feed 几乎无内容时才判定为真失效并告警。
         2. 全员静默检测：所有源在阈值时间内均无新文章
         3. 数据陈旧度检测：最新文章距今超过 80 小时
         """
-        # 检测 1：关键词告警
-        if self._auth_fail_keywords_detected:
-            keywords = ", ".join(set(self._auth_fail_keywords_detected))
-            await send_alert(
-                client,
-                "keyword",
-                f"RSS 内容中检测到授权失效关键词 [{keywords}]，"
-                f"we-mp-rss 可能需要重新扫码授权。",
-            )
-            return  # 最高优先级，命中后不再检测其他条件
+        # 检测 1：关键词告警（结合本轮正常文章数判断，避免单篇文章误命中）
+        if self._auth_fail_hits:
+            # feed 健康（仍抓到足够多正常文章）→ 关键词命中视为误报，不发送告警
+            if len(articles) >= RSS_KEYWORD_HEALTHY_MIN_ARTICLES:
+                hits_preview = "; ".join(
+                    f"[{h['source']}]《{h['title']}》({h['keyword']})"
+                    for h in self._auth_fail_hits[:5]
+                )
+                logger.info(
+                    f"[公众号RSS] 关键词命中但本轮已抓到 {len(articles)} 条正常文章"
+                    f"(≥{RSS_KEYWORD_HEALTHY_MIN_ARTICLES})，判定为误报，不发送告警。"
+                    f"命中详情: {hits_preview}"
+                )
+                # 不 return：误报时继续走陈旧度检测兜底（正常情况下不会触发）
+            else:
+                # feed 几乎无内容 + 关键词命中 → 高度疑似授权失效，发送告警（带命中详情）
+                keywords = ", ".join(sorted({h["keyword"] for h in self._auth_fail_hits}))
+                hits_detail = "; ".join(
+                    f"[{h['source']}]《{h['title']}》" for h in self._auth_fail_hits[:5]
+                )
+                await send_alert(
+                    client,
+                    "keyword",
+                    f"RSS 内容中检测到授权失效关键词 [{keywords}]，"
+                    f"且本轮仅抓到 {len(articles)} 条正常文章，"
+                    f"we-mp-rss 可能需要重新扫码授权。命中: {hits_detail}",
+                )
+                return  # 真失效，命中后不再检测其他条件
 
         # 单轮空结果容易受网络或上游临时波动影响，需持续超过阈值后再告警。
         if not articles and total_sources > 0:

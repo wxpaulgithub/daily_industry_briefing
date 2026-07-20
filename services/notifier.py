@@ -31,7 +31,21 @@ from config import (
 logger = logging.getLogger(__name__)
 
 # 告警关键词：RSS 内容中出现以下词视为授权失效信号
-AUTH_FAIL_KEYWORDS = ["扫码", "登录过期", "重新授权", "验证码", "请重新登录"]
+# 注意：避免使用“扫码”这类高频词（正常文章常出现“扫码入园/领券/点餐”等），
+# 改用更具体的失效占位语以降低误报；真失效另由“本轮正常文章数≈0”兜底判定
+# （见 wechat_rss.py 的 _check_auth_status）。
+AUTH_FAIL_KEYWORDS = [
+    "扫码登录",
+    "扫码授权",
+    "请扫码",
+    "重新扫码",
+    "登录过期",
+    "登录已过期",
+    "请重新登录",
+    "重新登录",
+    "重新授权",
+    "验证码",
+]
 
 
 def _split_csv(value: str) -> list[str]:
