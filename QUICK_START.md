@@ -39,7 +39,7 @@
 
 **公众号页是本项目内容最丰富的 Tab，但也是运维成本最高的。**
 
-它依赖一个独立的上游服务 **[we-mp-rss](https://github.com/qinli-jian/we-mp-rss)**（以下简称 WERSS），作用是将微信公众号文章转为标准 RSS Feed。你需要单独部署这个服务，不能跳过。
+它依赖一个独立的上游服务 **[we-mp-rss](https://github.com/rachelos/we-mp-rss)**（以下简称 WERSS），作用是将微信公众号文章转为标准 RSS Feed。你需要单独部署这个服务，不能跳过。
 
 **为什么需要它？** 微信公众号文章没有公开的搜索 API，也不能直接通过 URL 订阅。WERSS 通过模拟微信后台登录来抓取文章，然后以 RSS 格式输出。
 

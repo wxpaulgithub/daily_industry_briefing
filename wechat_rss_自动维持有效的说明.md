@@ -158,5 +158,149 @@ WERSS 项目内置了一套基于 Playwright + APScheduler 的自动切换机制
 告警状态保存于 `runtime/alert_status.json`，确保服务重启后仍能正确执行冷却逻辑，不会造成重复推送。
 
 ---
-**更新时间**：2026-04-27
-**适用项目**：资讯杂志 (Information Magazine) & WE-MP-RSS (WERSS)
+
+## 8. weread_mp 模式与微信读书凭证配置（2026-08-03 更新）
+
+> 本章为 2026 年 7 月底抓取集体失效事件后补充。前面第 3 节描述的"多账号自动切换"属于**老的 app 模式**（基于微信公众平台后台扫码）；自 2026-08 起，`MP_WXS_*` 源改用 **weread_mp 模式**（走微信读书链路），配置方式见本章。
+
+> **验证状态说明（2026-08-03）**：本章各节验证程度不同——
+> *   **已实测确认**：8.1 的故障现象与根因（feed 停更、staleness 告警、上游 issue/PR 均经 GitHub 核实）、8.2 的各镜像 tag 构建时间（经 Docker Hub API 与 GHCR 页面核实）。
+> *   **尚未在本环境验证（基于上游代码/文档调查推断）**：8.3~8.5 的全部操作步骤，含「beta 镜像能否恢复抓取」「后台是否存在『微信读书管理』页面及 `x-wr-ticket` 输入框」「ticket 获取途径是否可行」「配好后 RSS 是否真的更新」等。下文对这类内容逐处标注 **【待验证】**，实操确认后请回来更新并删除该标记。
+
+### 8.1 背景：2026 年 7 月底抓取集体失效
+
+2026-07-29 起，所有 `MP_WXS_*` 订阅源的 RSS 同时停止更新新文章（feed 仍可访问、能返回历史文章，但不再有新内容进入）。资讯杂志消费端触发 `[staleness]` 告警"所有 RSS 源最新文章已距今 114.8 小时"。
+
+排查结论：
+*   **不是授权（Cookie）失效**：feed 全部 HTTP 200，每个仍返回约 20 条历史文章，无"扫码登录"占位项——说明微信登录态仍在。
+*   **不是资讯杂志的采集问题**：消费端正常抓到 300 条历史文章，staleness 告警正确反映了"feed 长时间无新内容"。
+*   **根因**：上游 we-mp-rss 项目的抓取链路失效。社区同期集中爆发同类 issue：#425（微信登录页改版导致扫码失效）、#439（公众号新文章同步不下来）、#430（mps_id 为空时 Cron 持续 JSONDecodeError）、#440（游标推进导致永久漏抓）。
+*   **修复**：2026-08-02 贡献者提交 PR #444「fix: collect WeChat articles through WeRead」，2026-08-03 合并到 main，引入新的 weread_mp 采集模式。
+
+
+
+### 8.2 镜像 tag 陷阱（重要）
+
+修复**未发版**，只推送到 GHCR 的 `beta` tag。最新 release v1.5.2 是 2026-04-16 的，不含任何抓取修复。各镜像源实际构建时间：
+
+| Tag | Docker Hub | GHCR (GitHub) | 含 PR #444 修复 |
+| :--- | :--- | :--- | :--- |
+| `latest` | 2026-05-11 | 约 2 个月前 | 否 |
+| **`beta`** | 2026-04-03（旧） | **2026-08-03（最新）** | **仅 GHCR 的 beta 含** |
+| `main` | 2025-06-05 | — | 否 |
+
+要点：
+*   无论 Docker Hub 还是 `latest`，**都不含修复**。必须使用 **GHCR 的 `beta`**。
+*   国内加速规则：`ghcr.io` → `ghcr.1ms.run`（前缀替换）。完整地址 `ghcr.1ms.run/rachelos/we-mp-rss:beta`。
+*   `docker.1ms.run/xxx` 这种不带前缀的写法默认代理 **Docker Hub**（即旧的 latest），**不要用**。
+*   GHCR 镜像**不能**通过 daemon.json 的 `registry-mirrors` 加速，必须把地址写全。
+
+> **【待验证】**："GHCR beta 已含 PR #444 修复"是根据"该 tag 在 2026-08-03（PR 合并当天）有更新"的时间吻合推断的，**未直接核对镜像内代码**。最可靠的二次验证：升级到 beta 后在后台确认是否出现 `x-wr-ticket` 输入框（见 8.4 第二步），它是 PR #444 引入的标志性 UI。
+
+### 8.3 安装含修复的镜像
+
+> **【待验证】**：本节为根据上游文档整理的标准升级流程，尚未在本环境完整跑通。其中"跨版本升级有数据库 migration 风险"仅为预防性提醒，实际是否触发 migration、旧 data 是否兼容新版本，需在升级时观察容器日志确认。
+
+```bash
+# 0. 备份 data（跨版本升级有数据库 migration 风险）
+cp -r ./data ./data.bak.20260803
+
+# 1. 拉取 GHCR beta（国内服务器走加速）
+docker pull ghcr.1ms.run/rachelos/we-mp-rss:beta
+
+# 2. 验证镜像构建时间为 2026-08-03
+docker image inspect ghcr.1ms.run/rachelos/we-mp-rss:beta --format '{{.Created}}'
+
+# 3. 停旧容器，用新镜像启动（保留原端口与 data 卷）
+docker stop we-mp-rss && docker rm we-mp-rss
+docker run -d --name we-mp-rss \
+  -p 8001:8001 \
+  -v "$PWD/data:/app/data" \
+  ghcr.1ms.run/rachelos/we-mp-rss:beta
+```
+
+如用 docker-compose，将 `image:` 改为 `ghcr.1ms.run/rachelos/we-mp-rss:beta`，再执行 `docker compose pull && docker compose up -d`。
+
+### 8.4 配置微信读书凭证（weread_mp 模式核心）
+
+PR #444 将 `MP_WXS_*` 源的抓取从「微信公众平台后台扫码」改为「微信读书」链路。新模式下需提供两个凭证（均从浏览器抓包复制，**非扫码**）：
+
+| 凭证 | 说明 | 失效表现 |
+| :--- | :--- | :--- |
+| `WEREAD_COOKIE` | 微信读书完整 Cookie（含 `wr_vid`/`wr_skey`/`wr_rt`） | 失效较慢 |
+| `WEREAD_TICKET` | 请求头 `x-wr-ticket` 的值 | 会过期，日志报错码 `-2041` |
+
+#### 第一步：抓取两个凭证（难度不同，分别处理）
+
+PR #444 的前端改动落在后台**早已存在**的 `web_ui/src/views/WereadManagement.vue`（"微信读书管理"页面），为其新增了一个 `x-wr-ticket` 输入框。需要抓两个值：
+
+**① WEREAD_COOKIE（容易，一定能拿到）**
+
+这是微信读书的登录 Cookie，网页版登录后即可取得：
+
+1. 电脑浏览器打开 https://weread.qq.com → 扫码登录。
+2. 按 **F12** → **Application（应用）** 标签 → 左侧 **Cookies** → 选 `https://weread.qq.com`。
+3. 复制 `wr_vid`、`wr_skey`、`wr_rt` 三个字段，拼成 `wr_vid=...; wr_skey=...; wr_rt=...`。
+   *（等价做法：Network 标签里任意一个 `weread.qq.com` 请求 → Request Headers → 复制整行 `Cookie:` 的值。）*
+
+**② WEREAD_TICKET / x-wr-ticket（较难，网页版无法直接取得）**
+
+`x-wr-ticket` 是微信读书的**动态签名请求头**（由时间戳+随机数+密钥生成），**不是 Cookie 里的固定值**，仅在请求公众号文章列表（`mp/articles`）时由前端附带。
+
+实测确认：微信读书**网页版书架只展示书籍、不展示公众号**（公众号是 App 端功能），因此网页版通常无法直接触发 `mp/articles` 请求。可行途径（按推荐顺序）：
+
+*   **途径 A（先试）【待验证】**：在手机微信里把一篇目标公众号的文章「分享到微信读书」，再回网页版打开该文章，按 F12 看 Network 是否出现 `mp/articles` 请求并附带 `x-wr-ticket`，有则复制其值。（此途径为推测，未实测能否真正触发该请求。）
+*   **途径 B【待验证】**：用抓包工具（Charles / Fiddler / mitmproxy）对手机微信读书 App 抓包，过滤 `mp/articles` 请求，取其请求头 `x-wr-ticket`。
+*   **途径 C（兜底）**：weread_mp 是 2026-08-03 刚合并的新特性，`docs/weread-mp.md` 对 ticket 获取仅一句"从开发者工具复制"，并不完善。若 A/B 都不可行，建议直接在 [issue #439](https://github.com/rachelos/we-mp-rss/issues/439) 或 [PR #444](https://github.com/rachelos/we-mp-rss/pull/444) 下询问作者 mailela 具体步骤——这是目前拿到准确做法最快的方式。
+
+> 说明：`wr_skey` 本身有效期约 90 分钟，但配合 `wr_rt` 可由 we-mp-rss 服务端自动续期；`x-wr-ticket` 失效后日志报错码 `-2041`，按上述途径重新抓取更新即可，无需动镜像。
+
+#### 第二步：在后台填入凭证
+
+> **【待验证 · 重要】**：截至 2026-08-03，**实测未在后台找到「微信读书管理」页面**。因此下列描述（页面是否存在、菜单实际名称、是否真有 `x-wr-ticket` 输入框）均**尚未得到界面确认**，仅为根据 PR #444 改动文件 `web_ui/src/views/WereadManagement.vue` 作出的推断。请以后台实际界面为准；若找不到对应入口，参考 8.4 第一步途径 C 向作者确认。
+
+1. 浏览器打开 we-mp-rss 后台（如 `http://8.153.199.51:8001`）并登录。
+2. 找到后台**已有的**「**微信读书管理**」页面（WereadManagement，**不是**新菜单，别找"微信读书公众号采集"这个名字）。**【待验证：实测未找到，菜单实际名称待确认】**
+   *   **判定镜像是否为含修复的 beta**：该页面应出现一个 `x-wr-ticket`（ticket）输入框；**若没有这个输入框，说明镜像仍是旧版**，需回到 8.3 重新拉取 `ghcr.1ms.run/rachelos/we-mp-rss:beta` 并核对 `Created` 时间是否为 2026-08-03。**【待验证：该输入框是否真实存在尚未经界面确认】**
+3. 将 Cookie 粘贴到 Cookie 输入框，ticket 粘贴到 `x-wr-ticket` 输入框，保存。
+   *   建议 Cookie/ticket 用 UI 填写——ticket 会过期，UI 改起来不用重启容器。
+
+#### 第三步：切换采集模式到 weread_mp
+
+将 `GATHER.MODEL` 从默认的 `app` 改为 `weread_mp`（环境变量或后台设置）：
+
+```yaml
+environment:
+  - GATHER.MODEL=weread_mp        # 切换到微信读书采集模式（关键开关）
+  - GATHER.CONTENT=True            # 可选：RSS 中直接输出全文
+  - WEREAD_MP_MAX_PAGES=20         # 可选：单轮最大翻页数
+  - WEREAD_PAGE_INTERVAL=1         # 翻页间隔秒（勿设 0）
+  - WEREAD_CONTENT_INTERVAL=2      # 全文请求间隔秒（勿设 0）
+```
+
+> **优先级注意**：环境变量优先级高于后台 UI。若同时在 compose 里设了 `WEREAD_COOKIE`，后台 UI 修改 Cookie 会不生效（页面会标记为"部署配置托管"）。推荐做法：**Cookie/ticket 用后台 UI**（便于续期），**`GATHER.MODEL` 用环境变量固定**。
+
+#### 第四步：验证
+
+> **【待验证】**：本节为预期效果，截至 2026-08-03 尚未跑通（镜像/凭证均未配齐），实操确认后请回来勾选。
+
+1. 后台「微信读书管理」页面（原误称为"微信读书公众号采集"，已订正），凭证状态显示已保存且校验通过。
+2. 看容器日志，应出现 weread_mp 抓取动作：
+   ```bash
+   docker logs -f --tail 100 we-mp-rss
+   ```
+3. 过几分钟后测一个 feed，最新文章 `pubDate` 应变为当天：
+   ```bash
+   curl -s http://127.0.0.1:8001/feed/MP_WXS_2395797954.rss | grep -o '<pubDate>[^<]*</pubDate>' | head -1
+   ```
+
+### 8.5 凭证失效判断与日常维护
+
+*   **ticket 过期**：日志出现错误码 **`-2041`**（或 `-2012`、`-2010` 风控）时，按 8.4 第一步重新抓 `x-wr-ticket`，更新到后台即可，**无需动镜像**。
+*   **频率限制**：微信读书有访问频率限制，`WEREAD_PAGE_INTERVAL` / `WEREAD_CONTENT_INTERVAL` 不要设为 0，保持默认（1 秒 / 2 秒）或更高，避免触发风控。
+*   **RSS 地址不变**：weread_mp 模式继续沿用原有 `MP_WXS_*` Feed ID 与 RSS 地址，资讯杂志 `config_data/wechat_sources.json` 无需任何改动。
+*   **历史漏抓**：据 issue #440，失效期间（2026-07-29 至修复生效）漏掉的文章可能无法自动补回，但修复生效后的新文章会正常抓取；如需补抓，在 we-mp-rss 后台对相应公众号手动触发一次。
+
+---
+**更新时间**：2026-08-03
+**适用项目**：资讯杂志 (Information Magazine) & WE-MP-RSS (WERSS, 仓库 https://github.com/rachelos/we-mp-rss )
