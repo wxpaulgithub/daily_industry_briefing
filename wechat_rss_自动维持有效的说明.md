@@ -163,9 +163,7 @@ WERSS 项目内置了一套基于 Playwright + APScheduler 的自动切换机制
 
 > 本章为 2026 年 7 月底抓取集体失效事件后补充。前面第 3 节描述的"多账号自动切换"属于**老的 app 模式**（基于微信公众平台后台扫码）；自 2026-08 起，`MP_WXS_*` 源改用 **weread_mp 模式**（走微信读书链路），配置方式见本章。
 
-> **验证状态说明（2026-08-03）**：本章各节验证程度不同——
-> *   **已实测确认**：8.1 的故障现象与根因（feed 停更、staleness 告警、上游 issue/PR 均经 GitHub 核实）、8.2 的各镜像 tag 构建时间（经 Docker Hub API 与 GHCR 页面核实）。
-> *   **尚未在本环境验证（基于上游代码/文档调查推断）**：8.3~8.5 的全部操作步骤，含「beta 镜像能否恢复抓取」「后台是否存在『微信读书管理』页面及 `x-wr-ticket` 输入框」「ticket 获取途径是否可行」「配好后 RSS 是否真的更新」等。下文对这类内容逐处标注 **【待验证】**，实操确认后请回来更新并删除该标记。
+> **验证状态说明**：8.1（故障现象与根因）、8.2（镜像 tag 构建时间）经 GitHub 核实；**8.3~8.4 的部署与凭证配置已于 2026-08-07 实测跑通**（成功抓取到新文章）。weread_mp 的长期维护频率（即 ticket 寿命）仍在观察中。
 
 ### 8.1 背景：2026 年 7 月底抓取集体失效
 
@@ -227,78 +225,81 @@ PR #444 将 `MP_WXS_*` 源的抓取从「微信公众平台后台扫码」改为
 
 | 凭证 | 说明 | 失效表现 |
 | :--- | :--- | :--- |
-| `WEREAD_COOKIE` | 微信读书完整 Cookie（含 `wr_vid`/`wr_skey`/`wr_rt`） | 失效较慢 |
+| `WEREAD_COOKIE` | 微信读书完整 Cookie（含 `wr_vid`/`wr_skey`/`wr_gid`/`wr_fp` 等） | `wr_skey` 约 90 分钟有效，配合 `wr_rt` 自动续期，整体维持较久 |
 | `WEREAD_TICKET` | 请求头 `x-wr-ticket` 的值 | 会过期，日志报错码 `-2041` |
 
-#### 第一步：抓取两个凭证（难度不同，分别处理）
+#### 第一步：抓取 Cookie 与 x-wr-ticket（2026-08-07 实测跑通）
 
-PR #444 的前端改动落在后台**早已存在**的 `web_ui/src/views/WereadManagement.vue`（"微信读书管理"页面），为其新增了一个 `x-wr-ticket` 输入框。需要抓两个值：
+> 已实测验证：按此法成功抓取到新文章。核心要点：**Cookie 与 x-wr-ticket 必须从同一次请求复制（保证同会话）；任意公众号、任意一篇文章都能触发，不需要最新或近期文章；ticket 有时效，抓完尽快用。**
 
-**① WEREAD_COOKIE（容易，一定能拿到）**
+两个值都来自微信读书网页版的 `/web/mp/articles` 请求头。关键认知：Cookie 是登录态、x-wr-ticket 是会话签名，都与"哪篇文章"无关——所以打开**任意一个公众号的任意一篇文章**（新的旧的都行）即可触发该请求。
 
-这是微信读书的登录 Cookie，网页版登录后即可取得：
+操作步骤：
 
-1. 电脑浏览器打开 https://weread.qq.com → 扫码登录。
-2. 按 **F12** → **Application（应用）** 标签 → 左侧 **Cookies** → 选 `https://weread.qq.com`。
-3. 复制 `wr_vid`、`wr_skey`、`wr_rt` 三个字段，拼成 `wr_vid=...; wr_skey=...; wr_rt=...`。
-   *（等价做法：Network 标签里任意一个 `weread.qq.com` 请求 → Request Headers → 复制整行 `Cookie:` 的值。）*
+1. 电脑浏览器（建议**无痕窗口**确保干净会话）打开 https://weread.qq.com → 扫码登录。
+2. 按 **F12** → **Network/网络** 标签 → 过滤框输入 `mp/articles` → 勾选「Preserve log」。
+3. 在微信读书里打开**任意一个公众号的任意一篇文章**（搜索框搜公众号名点进去，或从手机微信把一篇公众号文章分享到微信读书后网页版打开均可，新旧文章都行）。
+4. Network 列表里出现 `/web/mp/articles` 请求 → 点开 → **Request Headers**，从**这同一个请求**里复制：
+   *   `Cookie:` 整行冒号后的完整字符串 → `WEREAD_COOKIE`
+   *   `x-wr-ticket:` 的值 → `WEREAD_TICKET`
+5. 再从 Cookie 里 `wr_vid=` 后面取数字 → `WEREAD_VID`。
 
-**② WEREAD_TICKET / x-wr-ticket（较难，网页版无法直接取得）**
+> **三个值必须同源**：`WEREAD_COOKIE`、`WEREAD_TICKET`、`WEREAD_VID` 都来自上面那一次请求。若中途重新登录或换了浏览器窗口，Cookie 与 ticket 会话不一致，采集会报 `-2041`。
 
-`x-wr-ticket` 是微信读书的**动态签名请求头**（由时间戳+随机数+密钥生成），**不是 Cookie 里的固定值**，仅在请求公众号文章列表（`mp/articles`）时由前端附带。
+> **ticket 有时效，抓完即用**：x-wr-ticket 是动态签名，抓完后尽快完成"改 compose → 重建容器 → 触发采集"全流程，间隔太久 ticket 会过期。Cookie 里的 `wr_skey` 约 90 分钟有效，但配合 `wr_rt` 可由 we-mp-rss 服务端自动续期，整体维持较久。
 
-实测确认：微信读书**网页版书架只展示书籍、不展示公众号**（公众号是 App 端功能），因此网页版通常无法直接触发 `mp/articles` 请求。可行途径（按推荐顺序）：
+#### 第二步：填入 compose（实测推荐环境变量方式）
 
-*   **途径 A（先试）【待验证】**：在手机微信里把一篇目标公众号的文章「分享到微信读书」，再回网页版打开该文章，按 F12 看 Network 是否出现 `mp/articles` 请求并附带 `x-wr-ticket`，有则复制其值。（此途径为推测，未实测能否真正触发该请求。）
-*   **途径 B【待验证】**：用抓包工具（Charles / Fiddler / mitmproxy）对手机微信读书 App 抓包，过滤 `mp/articles` 请求，取其请求头 `x-wr-ticket`。
-*   **途径 C（兜底）**：weread_mp 是 2026-08-03 刚合并的新特性，`docs/weread-mp.md` 对 ticket 获取仅一句"从开发者工具复制"，并不完善。若 A/B 都不可行，建议直接在 [issue #439](https://github.com/rachelos/we-mp-rss/issues/439) 或 [PR #444](https://github.com/rachelos/we-mp-rss/pull/444) 下询问作者 mailela 具体步骤——这是目前拿到准确做法最快的方式。
-
-> 说明：`wr_skey` 本身有效期约 90 分钟，但配合 `wr_rt` 可由 we-mp-rss 服务端自动续期；`x-wr-ticket` 失效后日志报错码 `-2041`，按上述途径重新抓取更新即可，无需动镜像。
-
-#### 第二步：在后台填入凭证
-
-> **【待验证 · 重要】**：截至 2026-08-03，**实测未在后台找到「微信读书管理」页面**。因此下列描述（页面是否存在、菜单实际名称、是否真有 `x-wr-ticket` 输入框）均**尚未得到界面确认**，仅为根据 PR #444 改动文件 `web_ui/src/views/WereadManagement.vue` 作出的推断。请以后台实际界面为准；若找不到对应入口，参考 8.4 第一步途径 C 向作者确认。
-
-1. 浏览器打开 we-mp-rss 后台（如 `http://8.153.199.51:8001`）并登录。
-2. 找到后台**已有的**「**微信读书管理**」页面（WereadManagement，**不是**新菜单，别找"微信读书公众号采集"这个名字）。**【待验证：实测未找到，菜单实际名称待确认】**
-   *   **判定镜像是否为含修复的 beta**：该页面应出现一个 `x-wr-ticket`（ticket）输入框；**若没有这个输入框，说明镜像仍是旧版**，需回到 8.3 重新拉取 `ghcr.1ms.run/rachelos/we-mp-rss:beta` 并核对 `Created` 时间是否为 2026-08-03。**【待验证：该输入框是否真实存在尚未经界面确认】**
-3. 将 Cookie 粘贴到 Cookie 输入框，ticket 粘贴到 `x-wr-ticket` 输入框，保存。
-   *   建议 Cookie/ticket 用 UI 填写——ticket 会过期，UI 改起来不用重启容器。
-
-#### 第三步：切换采集模式到 weread_mp
-
-将 `GATHER.MODEL` 从默认的 `app` 改为 `weread_mp`（环境变量或后台设置）：
+经实测，环境变量方式最可靠、且不依赖网页 UI。把三个值填进 docker-compose 的 `environment:`（Cookie 与 ticket 含 `;` 等特殊字符，整个 `KEY=VALUE` 用**双引号**包起来）：
 
 ```yaml
 environment:
-  - GATHER.MODEL=weread_mp        # 切换到微信读书采集模式（关键开关）
-  - GATHER.CONTENT=True            # 可选：RSS 中直接输出全文
-  - WEREAD_MP_MAX_PAGES=20         # 可选：单轮最大翻页数
-  - WEREAD_PAGE_INTERVAL=1         # 翻页间隔秒（勿设 0）
-  - WEREAD_CONTENT_INTERVAL=2      # 全文请求间隔秒（勿设 0）
+  - GATHER.MODEL=weread_mp
+  - "WEREAD_COOKIE=wr_vid=12345; wr_skey=abc; wr_gid=...; wr_fp=..."
+  - "WEREAD_TICKET=t03tserver..."
+  - WEREAD_VID=12345
+  - WEREAD_MP_MAX_PAGES=20
+  - WEREAD_PAGE_INTERVAL=1
+  - WEREAD_CONTENT_INTERVAL=2
 ```
 
-> **优先级注意**：环境变量优先级高于后台 UI。若同时在 compose 里设了 `WEREAD_COOKIE`，后台 UI 修改 Cookie 会不生效（页面会标记为"部署配置托管"）。推荐做法：**Cookie/ticket 用后台 UI**（便于续期），**`GATHER.MODEL` 用环境变量固定**。
+> 环境变量优先级高于后台 UI。也可在后台「微信读书管理」页面（WereadManagement，路径 `/weread`，需 admin 权限）的 Cookie / `x-wr-ticket` 输入框填写并点「测试连接」校验——但 **`GATHER.MODEL=weread_mp` 必须用环境变量**，UI 没有模式切换控件。若后台找不到该页面，多半是浏览器缓存了旧前端，强制刷新（Ctrl+Shift+R）或用无痕窗口访问 `/weread` 即可。
 
-#### 第四步：验证
+#### 第三步：重建并验证注入
 
-> **【待验证】**：本节为预期效果，截至 2026-08-03 尚未跑通（镜像/凭证均未配齐），实操确认后请回来勾选。
+```bash
+docker compose up -d --force-recreate                       # 用新环境变量重建
+docker exec we-mp-rss env | grep -iE "weread|gather.model"   # 确认变量已注入容器
+```
 
-1. 后台「微信读书管理」页面（原误称为"微信读书公众号采集"，已订正），凭证状态显示已保存且校验通过。
-2. 看容器日志，应出现 weread_mp 抓取动作：
+#### 第四步：触发采集并确认
+
+weread_mp 的自动采集是 cron `0 */8 * * *`（每 8 小时一次：0:00/8:00/16:00）。手动触发可立刻验证：
+
+1. 后台「公众号管理」页面对某个公众号点「采集/更新」，同时盯日志：
    ```bash
-   docker logs -f --tail 100 we-mp-rss
+   docker logs -f we-mp-rss
    ```
-3. 过几分钟后测一个 feed，最新文章 `pubDate` 应变为当天：
+2. 日志关键行判断：
+   *   `采集模式:weread_mp` + `成功N条`（N>0）→ **成功**
+   *   `WeRead MP API error -2041` → ticket 过期，或 Cookie/ticket 会话不一致，回第一步**重新同请求抓取**
+3. 确认 feed 已更新：
    ```bash
    curl -s http://127.0.0.1:8001/feed/MP_WXS_2395797954.rss | grep -o '<pubDate>[^<]*</pubDate>' | head -1
    ```
+   最新文章 `pubDate` 应为当天日期。
 
 ### 8.5 凭证失效判断与日常维护
 
 *   **ticket 过期**：日志出现错误码 **`-2041`**（或 `-2012`、`-2010` 风控）时，按 8.4 第一步重新抓 `x-wr-ticket`，更新到后台即可，**无需动镜像**。
 *   **频率限制**：微信读书有访问频率限制，`WEREAD_PAGE_INTERVAL` / `WEREAD_CONTENT_INTERVAL` 不要设为 0，保持默认（1 秒 / 2 秒）或更高，避免触发风控。
 *   **RSS 地址不变**：weread_mp 模式继续沿用原有 `MP_WXS_*` Feed ID 与 RSS 地址，资讯杂志 `config_data/wechat_sources.json` 无需任何改动。
+*   **资讯杂志消费触发**：we-mp-rss 抓到新文章后，资讯杂志**不会自动立刻消费**——两者采集调度独立（资讯杂志每天 7:00 全量 + 每 8 小时健康检查，健康检查只验证授权、不生成页面）。要让新文章立即出现在资讯杂志，手动触发：
+    ```bash
+    curl "https://mag.mhstar.tech/api/refresh?scope=wechat"
+    curl "https://mag.mhstar.tech/api/refresh?scope=local"
+    ```
+    （资讯杂志若在本机则用 `http://localhost:8088`）。或等每天 7:00 自动全量采集。注意资讯杂志 Skill 有 30 分钟缓存（`SKILL_CACHE_TTL_SECONDS=1800`），刚采过的话可能命中缓存。
 *   **历史漏抓**：据 issue #440，失效期间（2026-07-29 至修复生效）漏掉的文章可能无法自动补回，但修复生效后的新文章会正常抓取；如需补抓，在 we-mp-rss 后台对相应公众号手动触发一次。
 
 ---
