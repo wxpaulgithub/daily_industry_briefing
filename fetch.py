@@ -3,6 +3,7 @@
 用法: python fetch.py
 """
 import asyncio
+import argparse
 import sys
 import logging
 from pathlib import Path
@@ -18,9 +19,21 @@ logging.basicConfig(
 
 from services.fetcher import fetch_all_news
 from services.generator import download_article_images, render_both, save_articles_json
+from services.opportunity import fetch_opportunities
+from services.opportunity.storage import save_snapshot as save_opportunity_snapshot
 
 
-async def main():
+async def main(scope: str = "national"):
+    if scope == "opportunity":
+        print("=" * 40)
+        print("  智能仓储商机采集")
+        print("=" * 40)
+        items = await fetch_opportunities()
+        path = save_opportunity_snapshot(items)
+        print(f"\n采集完成: {len(items)} 条商机")
+        print(f"快照已保存到 {path}")
+        return
+
     print("=" * 40)
     print("  智能仓储每日简讯采集")
     print("=" * 40)
@@ -40,4 +53,12 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="智能仓储行业情报独立采集")
+    parser.add_argument(
+        "--scope",
+        choices=("national", "opportunity"),
+        default="national",
+        help="采集范围，默认 national；商机使用 opportunity",
+    )
+    args = parser.parse_args()
+    asyncio.run(main(args.scope))

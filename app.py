@@ -22,6 +22,8 @@ from config import (
     STATIC_DIR,
     SCHEDULE_HOUR,
     SCHEDULE_MINUTE,
+    OPPORTUNITY_SCHEDULE_HOUR,
+    OPPORTUNITY_SCHEDULE_MINUTE,
     DEFAULT_SCOPE,
     RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS,
     ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES,
@@ -44,6 +46,9 @@ from services.zhihu_health import (
     get_zhihu_cookie_health_status,
     run_zhihu_cookie_health_check,
 )
+from services.opportunity import fetch_opportunities
+from services.generator import render_opportunity_html
+from services.opportunity.storage import load_snapshot as load_opportunity_snapshot, save_snapshot as save_opportunity_snapshot
 
 # 日志配置
 logging.basicConfig(
@@ -56,6 +61,9 @@ logger = logging.getLogger(__name__)
 # 全局状态
 _is_fetching = False
 _current_fetch_scope = "all"
+_is_fetching_opportunities = False
+_opportunity_last_run = ""
+_opportunity_last_count = 0
 _next_wechat_health_run = ""
 _WECHAT_HEALTH_JOB_ID = "wechat_rss_auth_health_check"
 
@@ -142,6 +150,25 @@ async def _do_fetch(scope: str | None = None):
         _current_fetch_scope = "all"
 
 
+async def _do_fetch_opportunities():
+    """Run the independent opportunity pipeline and persist today's snapshot."""
+    global _is_fetching_opportunities, _opportunity_last_run, _opportunity_last_count
+    if _is_fetching_opportunities:
+        logger.info("商机采集已在进行中，跳过")
+        return
+    _is_fetching_opportunities = True
+    try:
+        items = await fetch_opportunities()
+        save_opportunity_snapshot(items)
+        _opportunity_last_count = len(items)
+        _opportunity_last_run = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info("[Opportunity] 完成：保存 %d 条", len(items))
+    except Exception as exc:
+        logger.error("商机采集失败: %s", exc, exc_info=True)
+    finally:
+        _is_fetching_opportunities = False
+
+
 def _schedule_wechat_health_check(
     scheduler: AsyncIOScheduler,
     *,
@@ -183,6 +210,13 @@ async def lifespan(app: FastAPI):
         id="daily_fetch",
         replace_existing=True,
     )
+    scheduler.add_job(
+        _do_fetch_opportunities,
+        CronTrigger(hour=OPPORTUNITY_SCHEDULE_HOUR, minute=OPPORTUNITY_SCHEDULE_MINUTE),
+        id="daily_opportunity_fetch",
+        replace_existing=True,
+        max_instances=1,
+    )
     _schedule_wechat_health_check(scheduler, delay_seconds=60)
     zhihu_health_interval_seconds = max(int(ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES * 60), 60)
     scheduler.add_job(
@@ -194,6 +228,7 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     logger.info(f"定时任务已启动: 每天 {SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}")
+    logger.info("商机定时任务已启动: 每天 %02d:%02d", OPPORTUNITY_SCHEDULE_HOUR, OPPORTUNITY_SCHEDULE_MINUTE)
     logger.info("公众号 RSS 授权健康检查已启动: 根据 token 预计到期时间动态调度")
     logger.info(f"知乎 Cookie 健康检查已启动: 每 {ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES:g} 分钟")
 
@@ -223,6 +258,12 @@ async def index(scope: str = Query(DEFAULT_SCOPE), wechat_kind: str = Query("all
     scope = _normalize_scope(scope)
     wechat_kind = _normalize_wechat_kind(wechat_kind)
     date_str = datetime.now().strftime("%Y-%m-%d")
+
+    if scope == "opportunity":
+        items = load_opportunity_snapshot(date_str)
+        if not items:
+            asyncio.create_task(_do_fetch_opportunities())
+        return HTMLResponse(content=render_opportunity_html(items))
 
     # 优先从 JSON 动态渲染，支持 scope 切换
     data = load_articles_json(date_str)
@@ -277,10 +318,15 @@ async def archive(date_str: str, scope: str = Query(DEFAULT_SCOPE), wechat_kind:
 async def refresh(scope: str = Query(DEFAULT_SCOPE)):
     """手动触发重新采集（支持 GET 和 POST），按 scope 局部刷新"""
     global _is_fetching
+    normalized_scope = _normalize_scope(scope)
+    if normalized_scope == "opportunity":
+        if _is_fetching_opportunities:
+            return JSONResponse({"status": "already_fetching", "scope": "opportunity"})
+        asyncio.create_task(_do_fetch_opportunities())
+        return JSONResponse({"status": "started", "scope": "opportunity"})
     if _is_fetching:
         return JSONResponse({"status": "already_fetching", "scope": _current_fetch_scope})
 
-    normalized_scope = _normalize_scope(scope)
     asyncio.create_task(_do_fetch(normalized_scope))
     return JSONResponse({"status": "started", "scope": normalized_scope})
 
@@ -296,6 +342,21 @@ async def news_today(scope: str = Query(DEFAULT_SCOPE), wechat_kind: str = Query
         return JSONResponse({"articles": [], "date": date_str, "scope": scope, "wechat_kind": wechat_kind})
     articles = _filter_articles_by_scope([Article(**d) for d in data], scope, wechat_kind)
     return JSONResponse({"articles": [a.__dict__ for a in articles], "date": date_str, "scope": scope, "wechat_kind": wechat_kind})
+
+
+@app.get("/api/opportunities/today")
+async def opportunities_today():
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    items = load_opportunity_snapshot(date_str)
+    return JSONResponse({"opportunities": [item.to_dict() for item in items], "date": date_str})
+
+
+@app.get("/api/opportunities/{date_str}")
+async def opportunities_by_date(date_str: str):
+    items = load_opportunity_snapshot(date_str)
+    if not items:
+        raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的商机数据")
+    return JSONResponse({"opportunities": [item.to_dict() for item in items], "date": date_str})
 
 
 @app.get("/api/news/{date_str}")
@@ -317,6 +378,12 @@ async def status():
         "fetching": _is_fetching,
         "fetch_scope": _current_fetch_scope,
         "schedule": f"{SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}",
+        "opportunity": {
+            "fetching": _is_fetching_opportunities,
+            "last_run": _opportunity_last_run,
+            "count": _opportunity_last_count,
+            "schedule": f"{OPPORTUNITY_SCHEDULE_HOUR:02d}:{OPPORTUNITY_SCHEDULE_MINUTE:02d}",
+        },
         "wechat_rss_auth_health_check": {
             "fallback_interval_hours": RSS_AUTH_HEALTH_CHECK_INTERVAL_HOURS,
             "next_run": _next_wechat_health_run,
@@ -371,6 +438,8 @@ def _normalize_scope(scope: str) -> str:
         return "discover"
     if v == "wechat":
         return "wechat"
+    if v == "opportunity":
+        return "opportunity"
     return "national"
 
 

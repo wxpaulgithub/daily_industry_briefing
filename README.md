@@ -53,7 +53,8 @@
 ├── config.py               # 全局配置（关键词、数量、超时、Cookie 路径等）
 ├── requirements.txt        # Python 依赖
 ├── config_data/
-│   └── wechat_sources.json # 公众号账号池与搜索词配置（配置驱动）
+│   ├── wechat_sources.json     # 公众号账号池与搜索词配置（配置驱动）
+│   └── opportunity_queries.json # 商机公告来源与发现查询矩阵
 ├── runtime/
 │   └── cookie.txt          # 知乎/B站登录态 Cookie（分节格式）
 ├── services/
@@ -61,6 +62,7 @@
 │   ├── generator.py        # HTML 页面生成器（Jinja2）+ 图片本地化
 │   ├── cookie_store.py     # Cookie 文件解析与缓存（支持热重载）
 │   ├── wechat_sources.py   # 公众号配置读取（热加载、scope 过滤）
+│   ├── opportunity/        # 独立商机实体、来源、规则、评分、去重和存储
 │   └── skills/             # 可插拽数据源 Skill 目录
 │       ├── __init__.py              # Skill 注册表
 │       ├── toutiao.py               # 今日头条搜索
@@ -77,7 +79,7 @@
 │       ├── discover_base.py         # 发现类 Skill 通用基类（含 Bing 兜底）
 │       └── rss_generic.py           # RSS/HTML 通用基类（含关键词过滤）
 ├── templates/
-│   ├── magazine.html       # Web 版模板（四范围 Tab + 3种主题 + 刷新按钮）
+│   ├── magazine.html       # Web 版资讯模板（3种主题 + 刷新按钮）
 │   └── wechat.html         # 微信公众号版模板（纯内联 CSS）
 ├── static/                 # 静态资源（Logo、备用图片等）
 ├── output/                 # 生成的每日 HTML/JSON + images/
@@ -107,6 +109,8 @@ python fetch.py
 # 方式二：启动 Web 服务（含自动采集 + 定时任务）
 python app.py
 ```
+
+商机模块的完整运行、调试和故障排查请阅读 [`docs/OPPORTUNITY_RUNBOOK.md`](docs/OPPORTUNITY_RUNBOOK.md)；总体产品边界与展讯后续计划见 [`docs/INTELLIGENCE_PLATFORM_PLAN.md`](docs/INTELLIGENCE_PLATFORM_PLAN.md)。无需启动 Web 服务时，可运行 `python fetch.py --scope opportunity` 只采集商机。
 
 采集完成后，`output/` 目录生成以下文件：
 
@@ -907,6 +911,7 @@ python fetch.py
 
 ```
 /api/refresh?scope=national   → 只刷新国内页（ToutiaoSkill, PolicySkill, BiddingSkill, IndustryMediaSkill, ExpoAssocSkill）
+/api/refresh?scope=opportunity → 独立刷新商机管线，写入 opportunities 每日快照
 /api/refresh?scope=local      → 只刷新本地页（LocalProjectSkill, WeChatRssSkill local 部分）
 /api/refresh?scope=wechat     → 只刷新公众号页（WeChatRssSkill wechat 部分, 可选 WeChatSkill）
 /api/refresh?scope=discover   → 只刷新发现页（ZhihuDiscoverSkill, BilibiliDiscoverSkill）
@@ -1053,13 +1058,14 @@ GET {image_url}
 
 ---
 
-## 四范围 Tab 页面体系
+## 五范围 Tab 页面体系
 
-页面通过 URL 参数 `?scope=` 切换四个范围：
+页面通过 URL 参数 `?scope=` 切换五个范围：
 
 | Tab | scope 值 | 对应 Skill | 展示上限 |
 |-----|----------|-----------|----------|
 | 国内 | `national` | 今日头条、政策标准、招投标、行业媒体、展会协会 | 24 条 |
+| 商机 | `opportunity` | 独立公告/搜索来源、规则分类与跨日去重；复用资讯页完整界面壳层 | 30 条 |
 | 本地 | `local` | 本地项目、本地公众号 RSS、本地白名单公众号 | 12 条 |
 | 公众号 | `wechat` | 公众号 RSS（wechat 范围）、搜狗搜索（可选） | 18 条 |
 | 发现 | `discover` | 知乎发现、B站发现 | 18 条 |
@@ -1068,6 +1074,7 @@ GET {image_url}
 
 ```
 http://localhost:8088/                       → 国内（默认）
+http://localhost:8088/?scope=opportunity     → 商机
 http://localhost:8088/?scope=local           → 本地
 http://localhost:8088/?scope=wechat          → 公众号
 http://localhost:8088/?scope=discover        → 发现
@@ -1378,6 +1385,8 @@ python fetch.py
 | `/api/refresh` | GET/POST | 手动触发采集（支持 `?scope=` 局部刷新） |
 | `/api/news/today` | GET | 今日资讯 JSON |
 | `/api/news/{date}` | GET | 指定日期资讯 JSON |
+| `/api/opportunities/today` | GET | 今日商机 JSON |
+| `/api/opportunities/{date}` | GET | 指定日期商机 JSON |
 | `/api/status` | GET | 服务状态（采集中/完成/可用日期列表） |
 | `/api/wechat-rss/health-check` | GET/POST | 手动执行公众号 RSS 授权健康检查 |
 | `/api/zhihu-cookie/health-check` | GET/POST | 手动执行知乎 Cookie 健康检查 |

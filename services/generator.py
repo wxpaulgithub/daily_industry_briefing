@@ -37,6 +37,7 @@ def render_html(
     output_type: str = "web",
     scope: str = "national",
     wechat_kind: str = "all",
+    opportunities: list | None = None,
 ) -> str:
     """渲染 HTML 文本（不落盘）"""
     date_display, _ = _get_date_str()
@@ -48,8 +49,15 @@ def render_html(
         loading=False,
         scope=scope,
         wechat_kind=wechat_kind,
+        opportunities=opportunities or [],
+        is_opportunity=scope == "opportunity",
         site_url=SITE_URL,
     )
+
+
+def render_opportunity_html(opportunities: list) -> str:
+    """Render opportunities inside the same magazine shell as every news scope."""
+    return render_html([], output_type="web", scope="opportunity", opportunities=opportunities)
 
 
 def render_page(articles: list, output_type: str = "web") -> Path:

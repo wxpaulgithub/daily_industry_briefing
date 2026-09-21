@@ -45,6 +45,8 @@ SITE_URL = (os.getenv("SITE_URL") or "").strip().rstrip("/") or f"http://localho
 # 定时任务配置
 SCHEDULE_HOUR = 7    # 每天早上7点
 SCHEDULE_MINUTE = 0
+OPPORTUNITY_SCHEDULE_HOUR = int(os.getenv("OPPORTUNITY_SCHEDULE_HOUR") or "7")
+OPPORTUNITY_SCHEDULE_MINUTE = int(os.getenv("OPPORTUNITY_SCHEDULE_MINUTE") or "20")
 
 # 资讯数量
 MAX_ARTICLES = 24
@@ -71,6 +73,7 @@ MAX_ARTICLES_LOCAL = 12
 MAX_ARTICLES_DISCOVER = 18
 # 公众号页展示上限
 MAX_ARTICLES_WECHAT = 18
+MAX_OPPORTUNITIES = int(os.getenv("MAX_OPPORTUNITIES") or "30")
 
 # 本地项目意图关键词（至少命中一项）
 LOCAL_INTENT_KEYWORDS = [

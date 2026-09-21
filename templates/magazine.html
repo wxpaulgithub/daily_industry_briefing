@@ -680,6 +680,7 @@
       <div class="header-controls">
         <nav class="scope-switcher">
           <a data-scope="national" href="/?scope=national">国内</a>
+          <a data-scope="opportunity" href="/?scope=opportunity">商机</a>
           <a data-scope="local" href="/?scope=local">本地</a>
           <a data-scope="wechat" href="/?scope=wechat">公众号</a>
           <a data-scope="discover" href="/?scope=discover">发现</a>
@@ -688,8 +689,45 @@
       <div class="header-divider"></div>
     </header>
 
+    <!-- 商机内容复用资讯页全部壳层，仅替换内容字段 -->
+    {% if is_opportunity %}
+    {% if opportunities %}
+    <section class="featured-section">
+      <a href="{{ opportunities[0].source_url }}" target="_blank" class="featured-card">
+        <div class="featured-image-wrapper">
+          {% set _fi = (opportunities[0].title | length * 3 + opportunities[0].source_url | length) % 4 %}
+          <img class="featured-image" src="{{ fallback_images[_fi] }}" alt="{{ opportunities[0].title }}" loading="eager">
+        </div>
+        <div class="featured-content">
+          <div class="featured-source">{{ opportunities[0].source_name or '商机发现' }} · {{ opportunities[0].stage }} · 优先度 {{ '%.0f'|format(opportunities[0].final_score) }}</div>
+          <h2 class="featured-title">{{ opportunities[0].title }}</h2>
+          {% if opportunities[0].summary %}<p class="featured-summary">{{ opportunities[0].summary }}</p>{% endif %}
+        </div>
+      </a>
+    </section>
+    <section class="articles-section">
+      <div class="section-label">OPPORTUNITY LEADS</div>
+      {% for item in opportunities[1:] %}
+      <a href="{{ item.source_url }}" target="_blank" class="article-card">
+        <div class="article-body">
+          <div class="article-meta">{{ item.source_name or '商机发现' }} · {{ item.stage }} · {{ item.project_type }} · 优先度 {{ '%.0f'|format(item.final_score) }}</div>
+          <div class="article-title">{{ item.title }}</div>
+          {% if item.summary %}<div class="article-summary">{{ item.summary }}</div>{% endif %}
+        </div>
+        <div class="article-thumb">
+          {% set _ai = (item.title | length * 3 + item.source_url | length) % 4 %}
+          <img src="{{ fallback_images[_ai] }}" alt="{{ item.title }}" loading="lazy">
+        </div>
+      </a>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="articles-section" style="text-align:center;padding:120px 0;">
+      <div style="font-size:14px;color:var(--text-muted);font-weight:500;letter-spacing:0.1em;">今日暂无商机</div>
+    </section>
+    {% endif %}
+    {% elif articles %}
     <!-- 头条区块 -->
-    {% if articles %}
     <section class="featured-section">
       <a href="{{ articles[0].url }}" target="_blank" class="featured-card">
         <div class="featured-image-wrapper">
@@ -760,7 +798,7 @@
     (function () {
       var params = new URLSearchParams(location.search);
       var rawScope = params.get('scope');
-      var scope = (rawScope === 'local' || rawScope === 'discover' || rawScope === 'wechat') ? rawScope : 'national';
+      var scope = (rawScope === 'opportunity' || rawScope === 'local' || rawScope === 'discover' || rawScope === 'wechat') ? rawScope : 'national';
       var rawWechatKind = params.get('wechat_kind');
       var wechatKind = (rawWechatKind === 'industry') ? rawWechatKind : 'all';
 
@@ -810,7 +848,7 @@
       var orig = btn.textContent;
       var params = new URLSearchParams(location.search);
       var rawScope = params.get('scope');
-      var scope = (rawScope === 'local' || rawScope === 'discover' || rawScope === 'wechat') ? rawScope : 'national';
+      var scope = (rawScope === 'opportunity' || rawScope === 'local' || rawScope === 'discover' || rawScope === 'wechat') ? rawScope : 'national';
       var rawWechatKind = params.get('wechat_kind');
       var wechatKind = (rawWechatKind === 'industry' || rawWechatKind === 'local') ? rawWechatKind : 'all';
       var baselineFetchedAt = 0;
@@ -831,16 +869,19 @@
       }
 
       function getMaxFetchedAt(newsJson) {
-        var arr = (newsJson && newsJson.articles) || [];
+        var arr = (newsJson && (newsJson.articles || newsJson.opportunities)) || [];
         var maxTs = 0;
         arr.forEach(function (a) {
-          var ts = Number(a && a.fetched_at || 0);
+          var ts = Number(a && (a.fetched_at || a.last_seen_at) || 0);
           if (ts > maxTs) maxTs = ts;
         });
         return maxTs;
       }
 
       function fetchToday() {
+        if (scope === 'opportunity') {
+          return fetch('/api/opportunities/today').then(function (r) { return r.json(); });
+        }
         var url = '/api/news/today?scope=' + scope;
         if (scope === 'wechat') {
           url += '&wechat_kind=' + encodeURIComponent(wechatKind);
@@ -857,9 +898,12 @@
           var today = res[1] || {};
           var latestFetchedAt = getMaxFetchedAt(today);
           var hasNewData = latestFetchedAt > baselineFetchedAt;
+          var isFetching = scope === 'opportunity'
+            ? Boolean(status.opportunity && status.opportunity.fetching)
+            : Boolean(status.fetching);
           var timedOut = (Date.now() - startedAt) > maxWaitMs;
 
-          if (hasNewData && status.fetching === false) {
+          if (hasNewData && !isFetching) {
             location.reload();
             return;
           }
@@ -869,7 +913,7 @@
             return;
           }
 
-          setBusy(status.fetching ? '采集中...' : '加载中...');
+          setBusy(isFetching ? '采集中...' : '加载中...');
           setTimeout(pollUntilDone, pollMs);
         }).catch(function () {
           setReady('失败，重试');
