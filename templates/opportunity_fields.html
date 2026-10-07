@@ -1,0 +1,32 @@
+{% macro meta(item) -%}
+  {% set priorities = {'A':'A级 · 重点关注', 'B':'B级 · 值得跟进', 'WATCH':'观察', 'DROP':'低优先度'} %}
+  {% set stages = {'EARLY_SIGNAL':'采购前期', 'PROCUREMENT':'采购/招标', 'AWARD':'已中标', 'CLOSED':'已结束', 'UNKNOWN':'阶段待核实'} %}
+  {{ priorities.get(item.priority, '观察') }} · {{ stages.get(item.stage, '阶段待核实') }}
+  {% if item.is_updated %} · 项目更新{% elif item.is_new %} · 新发现{% endif %}
+  {% if item.research_mode == 'preview' %} · AI 初步判断，搜索摘要待核验{% elif item.research_mode == 'fallback' %} · 规则筛选，待核验{% endif %}
+{%- endmacro %}
+
+{% macro details(item) -%}
+  <div class="opportunity-facts">
+    {{ item.province or item.city or '地区待核实' }}{% if item.province and item.city and item.province != item.city %} · {{ item.city }}{% endif %}
+    · {{ item.budget or '预算待核实' }}
+    {% if item.deadline %} · 截止 {{ item.deadline }}{% endif %}
+  </div>
+  {% if item.owner %}<div class="opportunity-facts">业主：{{ item.owner }}</div>{% endif %}
+  {% if item.published %}<div class="opportunity-facts">发布：{{ item.published }}</div>{% endif %}
+  {% if item.technical_scope %}<div class="opportunity-note">涉及：{{ item.technical_scope | join(' / ') }}</div>{% endif %}
+  {% if item.opportunity_reason %}<div class="opportunity-note"><strong>值得关注：</strong>{{ item.opportunity_reason }}</div>{% endif %}
+  {% if item.entry_point %}<div class="opportunity-note"><strong>可能切入：</strong>{{ item.entry_point }}</div>{% endif %}
+  <div class="opportunity-source"><a href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ '搜索摘要佐证 · 部分字段待核验' if item.research_mode == 'preview' else '原始官方来源' if item.official_source_url else '发现来源 · 官方链接待核实' }} ↗</a></div>
+  {% if item.evidence %}
+  <details class="opportunity-evidence">
+    <summary>{{ '查看搜索摘要证据' if item.research_mode == 'preview' else '查看原文证据' }} · {{ item.evidence | length }} 条</summary>
+    {% set names = {'title':'项目', 'owner':'业主', 'province':'省份', 'city':'城市', 'published':'发布日期', 'budget':'预算', 'deadline':'截止时间', 'stage':'阶段'} %}
+    {% for proof in item.evidence %}
+    <div class="opportunity-proof"><span>{{ names.get(proof.field, proof.field) }}：</span><q>{{ proof.quote }}</q>
+      <a href="{{ proof.source_url }}" target="_blank" rel="noopener noreferrer">{{ proof.source_title or '证据来源' }} ↗</a>
+    </div>
+    {% endfor %}
+  </details>
+  {% endif %}
+{%- endmacro %}

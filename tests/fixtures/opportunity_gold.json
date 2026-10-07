@@ -1,0 +1,967 @@
+{
+  "dataset_type": "synthetic_regression",
+  "description": "96 条人工编写的模拟回归场景，不代表真实项目或已达成的线上准确率。真实 A/B 评测应另行采集与标注公告原文。",
+  "reference_date": "2026-10-07",
+  "cases": [
+    {
+      "id": "high_quality_1",
+      "category": "high_quality",
+      "title": "模拟样本1-1 无锡制造企业自动化立体库堆垛机改造公开招标",
+      "url": "https://example.com/regression/high_quality/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "high_quality_2",
+      "category": "high_quality",
+      "title": "模拟样本1-2 苏州制造企业自动化立体库堆垛机改造公开招标",
+      "url": "https://example.com/regression/high_quality/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "high_quality_3",
+      "category": "high_quality",
+      "title": "模拟样本1-3 常州制造企业自动化立体库堆垛机改造公开招标",
+      "url": "https://example.com/regression/high_quality/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "high_quality_4",
+      "category": "high_quality",
+      "title": "模拟样本1-4 南京制造企业自动化立体库堆垛机改造公开招标",
+      "url": "https://example.com/regression/high_quality/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "high_quality_5",
+      "category": "high_quality",
+      "title": "模拟样本1-5 南通制造企业自动化立体库堆垛机改造公开招标",
+      "url": "https://example.com/regression/high_quality/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "high_quality_6",
+      "category": "high_quality",
+      "title": "模拟样本1-6 杭州制造企业自动化立体库堆垛机改造公开招标",
+      "url": "https://example.com/regression/high_quality/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "high_quality_7",
+      "category": "high_quality",
+      "title": "模拟样本1-7 合肥制造企业自动化立体库堆垛机改造公开招标",
+      "url": "https://example.com/regression/high_quality/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "high_quality_8",
+      "category": "high_quality",
+      "title": "模拟样本1-8 宁波制造企业自动化立体库堆垛机改造公开招标",
+      "url": "https://example.com/regression/high_quality/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "transport_1",
+      "category": "transport",
+      "title": "模拟样本2-1 无锡物流运输服务公开招标",
+      "url": "https://example.com/regression/transport/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "transport_2",
+      "category": "transport",
+      "title": "模拟样本2-2 苏州物流运输服务公开招标",
+      "url": "https://example.com/regression/transport/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "transport_3",
+      "category": "transport",
+      "title": "模拟样本2-3 常州物流运输服务公开招标",
+      "url": "https://example.com/regression/transport/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "transport_4",
+      "category": "transport",
+      "title": "模拟样本2-4 南京物流运输服务公开招标",
+      "url": "https://example.com/regression/transport/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "transport_5",
+      "category": "transport",
+      "title": "模拟样本2-5 南通物流运输服务公开招标",
+      "url": "https://example.com/regression/transport/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "transport_6",
+      "category": "transport",
+      "title": "模拟样本2-6 杭州物流运输服务公开招标",
+      "url": "https://example.com/regression/transport/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "transport_7",
+      "category": "transport",
+      "title": "模拟样本2-7 合肥物流运输服务公开招标",
+      "url": "https://example.com/regression/transport/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "transport_8",
+      "category": "transport",
+      "title": "模拟样本2-8 宁波物流运输服务公开招标",
+      "url": "https://example.com/regression/transport/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "rental_1",
+      "category": "rental",
+      "title": "模拟样本3-1 无锡普通仓库租赁采购公告",
+      "url": "https://example.com/regression/rental/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "rental_2",
+      "category": "rental",
+      "title": "模拟样本3-2 苏州普通仓库租赁采购公告",
+      "url": "https://example.com/regression/rental/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "rental_3",
+      "category": "rental",
+      "title": "模拟样本3-3 常州普通仓库租赁采购公告",
+      "url": "https://example.com/regression/rental/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "rental_4",
+      "category": "rental",
+      "title": "模拟样本3-4 南京普通仓库租赁采购公告",
+      "url": "https://example.com/regression/rental/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "rental_5",
+      "category": "rental",
+      "title": "模拟样本3-5 南通普通仓库租赁采购公告",
+      "url": "https://example.com/regression/rental/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "rental_6",
+      "category": "rental",
+      "title": "模拟样本3-6 杭州普通仓库租赁采购公告",
+      "url": "https://example.com/regression/rental/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "rental_7",
+      "category": "rental",
+      "title": "模拟样本3-7 合肥普通仓库租赁采购公告",
+      "url": "https://example.com/regression/rental/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "rental_8",
+      "category": "rental",
+      "title": "模拟样本3-8 宁波普通仓库租赁采购公告",
+      "url": "https://example.com/regression/rental/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "teaching_1",
+      "category": "teaching",
+      "title": "模拟样本4-1 无锡职业院校智能仓储教学实训设备采购公告",
+      "url": "https://example.com/regression/teaching/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "teaching_2",
+      "category": "teaching",
+      "title": "模拟样本4-2 苏州职业院校智能仓储教学实训设备采购公告",
+      "url": "https://example.com/regression/teaching/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "teaching_3",
+      "category": "teaching",
+      "title": "模拟样本4-3 常州职业院校智能仓储教学实训设备采购公告",
+      "url": "https://example.com/regression/teaching/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "teaching_4",
+      "category": "teaching",
+      "title": "模拟样本4-4 南京职业院校智能仓储教学实训设备采购公告",
+      "url": "https://example.com/regression/teaching/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "teaching_5",
+      "category": "teaching",
+      "title": "模拟样本4-5 南通职业院校智能仓储教学实训设备采购公告",
+      "url": "https://example.com/regression/teaching/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "teaching_6",
+      "category": "teaching",
+      "title": "模拟样本4-6 杭州职业院校智能仓储教学实训设备采购公告",
+      "url": "https://example.com/regression/teaching/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "teaching_7",
+      "category": "teaching",
+      "title": "模拟样本4-7 合肥职业院校智能仓储教学实训设备采购公告",
+      "url": "https://example.com/regression/teaching/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "teaching_8",
+      "category": "teaching",
+      "title": "模拟样本4-8 宁波职业院校智能仓储教学实训设备采购公告",
+      "url": "https://example.com/regression/teaching/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": false
+    },
+    {
+      "id": "industry_news_1",
+      "category": "industry_news",
+      "title": "模拟样本5-1 无锡智能仓储行业趋势深度解析",
+      "url": "https://example.com/regression/industry_news/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "UNKNOWN",
+      "expected_relevant": false
+    },
+    {
+      "id": "industry_news_2",
+      "category": "industry_news",
+      "title": "模拟样本5-2 苏州智能仓储行业趋势深度解析",
+      "url": "https://example.com/regression/industry_news/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "UNKNOWN",
+      "expected_relevant": false
+    },
+    {
+      "id": "industry_news_3",
+      "category": "industry_news",
+      "title": "模拟样本5-3 常州智能仓储行业趋势深度解析",
+      "url": "https://example.com/regression/industry_news/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "UNKNOWN",
+      "expected_relevant": false
+    },
+    {
+      "id": "industry_news_4",
+      "category": "industry_news",
+      "title": "模拟样本5-4 南京智能仓储行业趋势深度解析",
+      "url": "https://example.com/regression/industry_news/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "UNKNOWN",
+      "expected_relevant": false
+    },
+    {
+      "id": "industry_news_5",
+      "category": "industry_news",
+      "title": "模拟样本5-5 南通智能仓储行业趋势深度解析",
+      "url": "https://example.com/regression/industry_news/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "UNKNOWN",
+      "expected_relevant": false
+    },
+    {
+      "id": "industry_news_6",
+      "category": "industry_news",
+      "title": "模拟样本5-6 杭州智能仓储行业趋势深度解析",
+      "url": "https://example.com/regression/industry_news/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "UNKNOWN",
+      "expected_relevant": false
+    },
+    {
+      "id": "industry_news_7",
+      "category": "industry_news",
+      "title": "模拟样本5-7 合肥智能仓储行业趋势深度解析",
+      "url": "https://example.com/regression/industry_news/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "UNKNOWN",
+      "expected_relevant": false
+    },
+    {
+      "id": "industry_news_8",
+      "category": "industry_news",
+      "title": "模拟样本5-8 宁波智能仓储行业趋势深度解析",
+      "url": "https://example.com/regression/industry_news/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": false,
+      "expected_stage": "UNKNOWN",
+      "expected_relevant": false
+    },
+    {
+      "id": "closed_1",
+      "category": "closed",
+      "title": "模拟样本6-1 无锡自动化立体库堆垛机采购终止公告",
+      "url": "https://example.com/regression/closed/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "CLOSED",
+      "expected_relevant": false
+    },
+    {
+      "id": "closed_2",
+      "category": "closed",
+      "title": "模拟样本6-2 苏州自动化立体库堆垛机采购终止公告",
+      "url": "https://example.com/regression/closed/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "CLOSED",
+      "expected_relevant": false
+    },
+    {
+      "id": "closed_3",
+      "category": "closed",
+      "title": "模拟样本6-3 常州自动化立体库堆垛机采购终止公告",
+      "url": "https://example.com/regression/closed/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "CLOSED",
+      "expected_relevant": false
+    },
+    {
+      "id": "closed_4",
+      "category": "closed",
+      "title": "模拟样本6-4 南京自动化立体库堆垛机采购终止公告",
+      "url": "https://example.com/regression/closed/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "CLOSED",
+      "expected_relevant": false
+    },
+    {
+      "id": "closed_5",
+      "category": "closed",
+      "title": "模拟样本6-5 南通自动化立体库堆垛机采购终止公告",
+      "url": "https://example.com/regression/closed/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "CLOSED",
+      "expected_relevant": false
+    },
+    {
+      "id": "closed_6",
+      "category": "closed",
+      "title": "模拟样本6-6 杭州自动化立体库堆垛机采购终止公告",
+      "url": "https://example.com/regression/closed/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "CLOSED",
+      "expected_relevant": false
+    },
+    {
+      "id": "closed_7",
+      "category": "closed",
+      "title": "模拟样本6-7 合肥自动化立体库堆垛机采购终止公告",
+      "url": "https://example.com/regression/closed/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "CLOSED",
+      "expected_relevant": false
+    },
+    {
+      "id": "closed_8",
+      "category": "closed",
+      "title": "模拟样本6-8 宁波自动化立体库堆垛机采购终止公告",
+      "url": "https://example.com/regression/closed/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "CLOSED",
+      "expected_relevant": false
+    },
+    {
+      "id": "award_1",
+      "category": "award",
+      "title": "模拟样本7-1 无锡自动化立体库堆垛机中标公告",
+      "url": "https://example.com/regression/award/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "AWARD",
+      "expected_relevant": false
+    },
+    {
+      "id": "award_2",
+      "category": "award",
+      "title": "模拟样本7-2 苏州自动化立体库堆垛机中标公告",
+      "url": "https://example.com/regression/award/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "AWARD",
+      "expected_relevant": false
+    },
+    {
+      "id": "award_3",
+      "category": "award",
+      "title": "模拟样本7-3 常州自动化立体库堆垛机中标公告",
+      "url": "https://example.com/regression/award/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "AWARD",
+      "expected_relevant": false
+    },
+    {
+      "id": "award_4",
+      "category": "award",
+      "title": "模拟样本7-4 南京自动化立体库堆垛机中标公告",
+      "url": "https://example.com/regression/award/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "AWARD",
+      "expected_relevant": false
+    },
+    {
+      "id": "award_5",
+      "category": "award",
+      "title": "模拟样本7-5 南通自动化立体库堆垛机中标公告",
+      "url": "https://example.com/regression/award/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "AWARD",
+      "expected_relevant": false
+    },
+    {
+      "id": "award_6",
+      "category": "award",
+      "title": "模拟样本7-6 杭州自动化立体库堆垛机中标公告",
+      "url": "https://example.com/regression/award/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "AWARD",
+      "expected_relevant": false
+    },
+    {
+      "id": "award_7",
+      "category": "award",
+      "title": "模拟样本7-7 合肥自动化立体库堆垛机中标公告",
+      "url": "https://example.com/regression/award/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "AWARD",
+      "expected_relevant": false
+    },
+    {
+      "id": "award_8",
+      "category": "award",
+      "title": "模拟样本7-8 宁波自动化立体库堆垛机中标公告",
+      "url": "https://example.com/regression/award/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "AWARD",
+      "expected_relevant": false
+    },
+    {
+      "id": "maintenance_1",
+      "category": "maintenance",
+      "title": "模拟样本8-1 无锡制造企业堆垛机维保公开招标",
+      "url": "https://example.com/regression/maintenance/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "maintenance_2",
+      "category": "maintenance",
+      "title": "模拟样本8-2 苏州制造企业堆垛机维保公开招标",
+      "url": "https://example.com/regression/maintenance/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "maintenance_3",
+      "category": "maintenance",
+      "title": "模拟样本8-3 常州制造企业堆垛机维保公开招标",
+      "url": "https://example.com/regression/maintenance/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "maintenance_4",
+      "category": "maintenance",
+      "title": "模拟样本8-4 南京制造企业堆垛机维保公开招标",
+      "url": "https://example.com/regression/maintenance/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "maintenance_5",
+      "category": "maintenance",
+      "title": "模拟样本8-5 南通制造企业堆垛机维保公开招标",
+      "url": "https://example.com/regression/maintenance/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "maintenance_6",
+      "category": "maintenance",
+      "title": "模拟样本8-6 杭州制造企业堆垛机维保公开招标",
+      "url": "https://example.com/regression/maintenance/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "maintenance_7",
+      "category": "maintenance",
+      "title": "模拟样本8-7 合肥制造企业堆垛机维保公开招标",
+      "url": "https://example.com/regression/maintenance/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "maintenance_8",
+      "category": "maintenance",
+      "title": "模拟样本8-8 宁波制造企业堆垛机维保公开招标",
+      "url": "https://example.com/regression/maintenance/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "new_build_1",
+      "category": "new_build",
+      "title": "模拟样本9-1 无锡制造企业新建自动化立体库设备公开招标",
+      "url": "https://example.com/regression/new_build/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "new_build_2",
+      "category": "new_build",
+      "title": "模拟样本9-2 苏州制造企业新建自动化立体库设备公开招标",
+      "url": "https://example.com/regression/new_build/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "new_build_3",
+      "category": "new_build",
+      "title": "模拟样本9-3 常州制造企业新建自动化立体库设备公开招标",
+      "url": "https://example.com/regression/new_build/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "new_build_4",
+      "category": "new_build",
+      "title": "模拟样本9-4 南京制造企业新建自动化立体库设备公开招标",
+      "url": "https://example.com/regression/new_build/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "new_build_5",
+      "category": "new_build",
+      "title": "模拟样本9-5 南通制造企业新建自动化立体库设备公开招标",
+      "url": "https://example.com/regression/new_build/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "new_build_6",
+      "category": "new_build",
+      "title": "模拟样本9-6 杭州制造企业新建自动化立体库设备公开招标",
+      "url": "https://example.com/regression/new_build/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "new_build_7",
+      "category": "new_build",
+      "title": "模拟样本9-7 合肥制造企业新建自动化立体库设备公开招标",
+      "url": "https://example.com/regression/new_build/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "new_build_8",
+      "category": "new_build",
+      "title": "模拟样本9-8 宁波制造企业新建自动化立体库设备公开招标",
+      "url": "https://example.com/regression/new_build/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "wms_1",
+      "category": "wms",
+      "title": "模拟样本10-1 无锡制造企业WMS仓储管理系统采购公告",
+      "url": "https://example.com/regression/wms/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "wms_2",
+      "category": "wms",
+      "title": "模拟样本10-2 苏州制造企业WMS仓储管理系统采购公告",
+      "url": "https://example.com/regression/wms/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "wms_3",
+      "category": "wms",
+      "title": "模拟样本10-3 常州制造企业WMS仓储管理系统采购公告",
+      "url": "https://example.com/regression/wms/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "wms_4",
+      "category": "wms",
+      "title": "模拟样本10-4 南京制造企业WMS仓储管理系统采购公告",
+      "url": "https://example.com/regression/wms/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "wms_5",
+      "category": "wms",
+      "title": "模拟样本10-5 南通制造企业WMS仓储管理系统采购公告",
+      "url": "https://example.com/regression/wms/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "wms_6",
+      "category": "wms",
+      "title": "模拟样本10-6 杭州制造企业WMS仓储管理系统采购公告",
+      "url": "https://example.com/regression/wms/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "wms_7",
+      "category": "wms",
+      "title": "模拟样本10-7 合肥制造企业WMS仓储管理系统采购公告",
+      "url": "https://example.com/regression/wms/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "wms_8",
+      "category": "wms",
+      "title": "模拟样本10-8 宁波制造企业WMS仓储管理系统采购公告",
+      "url": "https://example.com/regression/wms/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "agv_1",
+      "category": "agv",
+      "title": "模拟样本11-1 无锡制造企业AGV仓储搬运设备采购公告",
+      "url": "https://example.com/regression/agv/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "agv_2",
+      "category": "agv",
+      "title": "模拟样本11-2 苏州制造企业AGV仓储搬运设备采购公告",
+      "url": "https://example.com/regression/agv/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "agv_3",
+      "category": "agv",
+      "title": "模拟样本11-3 常州制造企业AGV仓储搬运设备采购公告",
+      "url": "https://example.com/regression/agv/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "agv_4",
+      "category": "agv",
+      "title": "模拟样本11-4 南京制造企业AGV仓储搬运设备采购公告",
+      "url": "https://example.com/regression/agv/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "agv_5",
+      "category": "agv",
+      "title": "模拟样本11-5 南通制造企业AGV仓储搬运设备采购公告",
+      "url": "https://example.com/regression/agv/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "agv_6",
+      "category": "agv",
+      "title": "模拟样本11-6 杭州制造企业AGV仓储搬运设备采购公告",
+      "url": "https://example.com/regression/agv/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "agv_7",
+      "category": "agv",
+      "title": "模拟样本11-7 合肥制造企业AGV仓储搬运设备采购公告",
+      "url": "https://example.com/regression/agv/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "agv_8",
+      "category": "agv",
+      "title": "模拟样本11-8 宁波制造企业AGV仓储搬运设备采购公告",
+      "url": "https://example.com/regression/agv/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "PROCUREMENT",
+      "expected_relevant": true
+    },
+    {
+      "id": "early_factory_1",
+      "category": "early_factory",
+      "title": "模拟样本12-1 无锡制造企业扩产新工厂包装后端生产物流拟建项目",
+      "url": "https://example.com/regression/early_factory/1",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "EARLY_SIGNAL",
+      "expected_relevant": true
+    },
+    {
+      "id": "early_factory_2",
+      "category": "early_factory",
+      "title": "模拟样本12-2 苏州制造企业扩产新工厂包装后端生产物流拟建项目",
+      "url": "https://example.com/regression/early_factory/2",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "EARLY_SIGNAL",
+      "expected_relevant": true
+    },
+    {
+      "id": "early_factory_3",
+      "category": "early_factory",
+      "title": "模拟样本12-3 常州制造企业扩产新工厂包装后端生产物流拟建项目",
+      "url": "https://example.com/regression/early_factory/3",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "EARLY_SIGNAL",
+      "expected_relevant": true
+    },
+    {
+      "id": "early_factory_4",
+      "category": "early_factory",
+      "title": "模拟样本12-4 南京制造企业扩产新工厂包装后端生产物流拟建项目",
+      "url": "https://example.com/regression/early_factory/4",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "EARLY_SIGNAL",
+      "expected_relevant": true
+    },
+    {
+      "id": "early_factory_5",
+      "category": "early_factory",
+      "title": "模拟样本12-5 南通制造企业扩产新工厂包装后端生产物流拟建项目",
+      "url": "https://example.com/regression/early_factory/5",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "EARLY_SIGNAL",
+      "expected_relevant": true
+    },
+    {
+      "id": "early_factory_6",
+      "category": "early_factory",
+      "title": "模拟样本12-6 杭州制造企业扩产新工厂包装后端生产物流拟建项目",
+      "url": "https://example.com/regression/early_factory/6",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "EARLY_SIGNAL",
+      "expected_relevant": true
+    },
+    {
+      "id": "early_factory_7",
+      "category": "early_factory",
+      "title": "模拟样本12-7 合肥制造企业扩产新工厂包装后端生产物流拟建项目",
+      "url": "https://example.com/regression/early_factory/7",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "EARLY_SIGNAL",
+      "expected_relevant": true
+    },
+    {
+      "id": "early_factory_8",
+      "category": "early_factory",
+      "title": "模拟样本12-8 宁波制造企业扩产新工厂包装后端生产物流拟建项目",
+      "url": "https://example.com/regression/early_factory/8",
+      "summary": "仅用于离线测试的模拟内容。",
+      "expected_prefilter": true,
+      "expected_stage": "EARLY_SIGNAL",
+      "expected_relevant": true
+    }
+  ]
+}

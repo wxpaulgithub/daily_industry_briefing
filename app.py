@@ -3,7 +3,8 @@
 """
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+import os
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -46,9 +47,12 @@ from services.zhihu_health import (
     get_zhihu_cookie_health_status,
     run_zhihu_cookie_health_check,
 )
-from services.opportunity import fetch_opportunities
 from services.generator import render_opportunity_html
-from services.opportunity.storage import load_snapshot as load_opportunity_snapshot, save_snapshot as save_opportunity_snapshot
+from services.opportunity.storage import load_snapshot as load_opportunity_snapshot
+from services.opportunity.pipeline import run_opportunity_pipeline
+from services.opportunity.publisher import publish_test as publish_opportunity_test, publish_today as publish_opportunity_today, retry_pending
+from services.opportunity.runtime import get_status as get_opportunity_status, local_now
+from services.opportunity.settings import OpportunitySettings
 
 # 日志配置
 logging.basicConfig(
@@ -131,7 +135,7 @@ async def _do_fetch(scope: str | None = None):
             return
 
         # 先将外链图片本地化，避免微信/CDN 防盗链导致页面无图
-        download_article_images(articles)
+        await asyncio.to_thread(download_article_images, articles)
 
         # 生成 Web 版和微信公众号版
         render_both(articles)
@@ -158,8 +162,7 @@ async def _do_fetch_opportunities():
         return
     _is_fetching_opportunities = True
     try:
-        items = await fetch_opportunities()
-        save_opportunity_snapshot(items)
+        items = await run_opportunity_pipeline()
         _opportunity_last_count = len(items)
         _opportunity_last_run = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         logger.info("[Opportunity] 完成：保存 %d 条", len(items))
@@ -212,11 +215,14 @@ async def lifespan(app: FastAPI):
     )
     scheduler.add_job(
         _do_fetch_opportunities,
-        CronTrigger(hour=OPPORTUNITY_SCHEDULE_HOUR, minute=OPPORTUNITY_SCHEDULE_MINUTE),
+        CronTrigger(hour=OPPORTUNITY_SCHEDULE_HOUR, minute=OPPORTUNITY_SCHEDULE_MINUTE, timezone="Asia/Shanghai"),
         id="daily_opportunity_fetch",
         replace_existing=True,
         max_instances=1,
+        coalesce=True,
     )
+    scheduler.add_job(retry_pending, IntervalTrigger(minutes=1), id="opportunity_publish_retry",
+                      replace_existing=True, max_instances=1, coalesce=True)
     _schedule_wechat_health_check(scheduler, delay_seconds=60)
     zhihu_health_interval_seconds = max(int(ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES * 60), 60)
     scheduler.add_job(
@@ -232,9 +238,18 @@ async def lifespan(app: FastAPI):
     logger.info("公众号 RSS 授权健康检查已启动: 根据 token 预计到期时间动态调度")
     logger.info(f"知乎 Cookie 健康检查已启动: 每 {ZHIHU_COOKIE_CHECK_INTERVAL_MINUTES:g} 分钟")
 
-    yield
-
-    scheduler.shutdown(wait=False)
+    startup_fetch = None
+    if (os.getenv("FETCH_NEWS_ON_STARTUP") or "false").strip().lower() in {"1", "true", "yes", "on"}:
+        startup_fetch = asyncio.create_task(_do_fetch(), name="startup_news_fetch")
+    try:
+        yield
+    finally:
+        if startup_fetch is not None:
+            if not startup_fetch.done():
+                startup_fetch.cancel()
+            with suppress(asyncio.CancelledError):
+                await startup_fetch
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="智能仓储每日简讯", lifespan=lifespan)
@@ -260,9 +275,7 @@ async def index(scope: str = Query(DEFAULT_SCOPE), wechat_kind: str = Query("all
     date_str = datetime.now().strftime("%Y-%m-%d")
 
     if scope == "opportunity":
-        items = load_opportunity_snapshot(date_str)
-        if not items:
-            asyncio.create_task(_do_fetch_opportunities())
+        items = load_opportunity_snapshot(local_now().date().isoformat())
         return HTMLResponse(content=render_opportunity_html(items))
 
     # 优先从 JSON 动态渲染，支持 scope 切换
@@ -299,6 +312,12 @@ async def archive(date_str: str, scope: str = Query(DEFAULT_SCOPE), wechat_kind:
     """历史资讯页面"""
     scope = _normalize_scope(scope)
     wechat_kind = _normalize_wechat_kind(wechat_kind)
+    if scope == "opportunity":
+        _validate_opportunity_date(date_str)
+        items = load_opportunity_snapshot(date_str)
+        if not items and not (OUTPUT_DIR / "opportunities" / f"{date_str}.json").exists():
+            raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的商机数据")
+        return HTMLResponse(content=render_opportunity_html(items, date_str=date_str))
     data = load_articles_json(date_str)
     if data:
         articles = [Article(**d) for d in data]
@@ -320,6 +339,8 @@ async def refresh(scope: str = Query(DEFAULT_SCOPE)):
     global _is_fetching
     normalized_scope = _normalize_scope(scope)
     if normalized_scope == "opportunity":
+        if not OpportunitySettings.from_env().enabled:
+            return JSONResponse({"status": "disabled", "scope": "opportunity"})
         if _is_fetching_opportunities:
             return JSONResponse({"status": "already_fetching", "scope": "opportunity"})
         asyncio.create_task(_do_fetch_opportunities())
@@ -346,15 +367,39 @@ async def news_today(scope: str = Query(DEFAULT_SCOPE), wechat_kind: str = Query
 
 @app.get("/api/opportunities/today")
 async def opportunities_today():
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = local_now().date().isoformat()
     items = load_opportunity_snapshot(date_str)
     return JSONResponse({"opportunities": [item.to_dict() for item in items], "date": date_str})
 
 
+@app.get("/api/opportunities/status")
+async def opportunities_status():
+    settings = OpportunitySettings.from_env()
+    return JSONResponse({**get_opportunity_status(settings), "fetching": _is_fetching_opportunities})
+
+
+@app.post("/api/opportunities/research")
+async def opportunities_research():
+    return await refresh(scope="opportunity")
+
+
+@app.post("/api/opportunities/publish-test")
+async def opportunities_publish_test():
+    return JSONResponse(await publish_opportunity_test())
+
+
+@app.post("/api/opportunities/publish-today")
+async def opportunities_publish_today():
+    if _is_fetching_opportunities:
+        return JSONResponse({"status": "research_in_progress"}, status_code=409)
+    return JSONResponse(await publish_opportunity_today())
+
+
 @app.get("/api/opportunities/{date_str}")
 async def opportunities_by_date(date_str: str):
+    _validate_opportunity_date(date_str)
     items = load_opportunity_snapshot(date_str)
-    if not items:
+    if not items and not (OUTPUT_DIR / "opportunities" / f"{date_str}.json").exists():
         raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的商机数据")
     return JSONResponse({"opportunities": [item.to_dict() for item in items], "date": date_str})
 
@@ -374,14 +419,16 @@ async def news_by_date(date_str: str, scope: str = Query(DEFAULT_SCOPE), wechat_
 @app.get("/api/status")
 async def status():
     """服务状态"""
+    opportunity_state = get_opportunity_status(OpportunitySettings.from_env())
     return JSONResponse({
         "fetching": _is_fetching,
         "fetch_scope": _current_fetch_scope,
         "schedule": f"{SCHEDULE_HOUR:02d}:{SCHEDULE_MINUTE:02d}",
         "opportunity": {
+            **opportunity_state,
             "fetching": _is_fetching_opportunities,
-            "last_run": _opportunity_last_run,
-            "count": _opportunity_last_count,
+            "last_run": _opportunity_last_run or opportunity_state["last_run"],
+            "count": _opportunity_last_count if _opportunity_last_run else opportunity_state["last_count"],
             "schedule": f"{OPPORTUNITY_SCHEDULE_HOUR:02d}:{OPPORTUNITY_SCHEDULE_MINUTE:02d}",
         },
         "wechat_rss_auth_health_check": {
@@ -416,6 +463,14 @@ async def alerts_test():
 
 
 # ===== 工具函数 =====
+
+def _validate_opportunity_date(date_str: str) -> None:
+    try:
+        if len(date_str) != 10:
+            raise ValueError
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="商机日期必须为有效的 YYYY-MM-DD") from None
 
 def _get_available_dates() -> list[str]:
     """获取已有资讯的日期列表"""

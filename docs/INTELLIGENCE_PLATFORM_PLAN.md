@@ -1,5 +1,7 @@
 # 智能仓储行业情报平台总体规划
 
+> 2026-10-07 更新：商机模块进入 AI V2，继续在 `codex/opportunity-tab-v1` 实施。商机当前技术要求以 `AI_商机日报_V2_技术实施规划.md` 和 `OPPORTUNITY_V2_RUNBOOK.md` 为准；下文展讯路线仍保留。
+
 ## 产品定位
 
 项目由“新闻聚合器”逐步升级为轻量级智能仓储行业情报站。六个一级入口分别回答不同问题：
@@ -54,4 +56,4 @@ final_score = relevance × 0.35 + business_value × 0.45 + source × 0.20
 3. 商机验收并合并后，从最新主分支创建 `codex/events-tab-v1`，不修改已上线商机业务逻辑。
 4. 核对未来 180 天展会后再合并展讯。
 
-长期数据库应保留 `Article / ProjectOpportunity / IndustryEvent` 三类实体。AI 只在规则稳定后用于摘要、分类和判断；日期、预算、开标时间和展会地点等事实字段始终以原文为准。
+长期数据库应保留 `Article / ProjectOpportunity / IndustryEvent` 三类实体。商机 V2 的 AI 负责主动发现、语义研究和商业判断，规则负责粗筛、确定性计算与故障回退；日期、预算、截止时间和展会地点等事实字段始终以原文证据为准。展讯实施仍按本规划的独立管线和 V1 边界推进。

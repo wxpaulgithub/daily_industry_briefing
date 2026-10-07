@@ -691,39 +691,59 @@
 
     <!-- 商机内容复用资讯页全部壳层，仅替换内容字段 -->
     {% if is_opportunity %}
+    {% import 'opportunity_fields.html' as opportunity %}
+    <style>
+      .opportunity-card .featured-summary, .opportunity-card .article-summary { display: block; -webkit-line-clamp: unset; }
+      .opportunity-card .article-title { display: block; color: inherit; text-decoration: none; -webkit-line-clamp: unset; }
+      .opportunity-card .featured-title a { color: inherit; text-decoration: none; }
+      .opportunity-facts { margin-top: 8px; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
+      .opportunity-note { margin-top: 8px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+      .opportunity-note strong { font-weight: 500; }
+      .opportunity-source, .opportunity-evidence { margin-top: 12px; font-size: 12px; color: var(--text-secondary); }
+      .opportunity-source a, .opportunity-proof a, .opportunity-history a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--border); }
+      .opportunity-evidence summary { cursor: pointer; color: var(--text-muted); }
+      .opportunity-proof { margin-top: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+      .opportunity-proof a { display: block; margin-top: 3px; }
+      .opportunity-history { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-bottom: 24px; }
+      .opportunity-card { align-items: flex-start; }
+      .featured-card.opportunity-card { align-items: stretch; }
+    </style>
+    {% if opportunity_dates %}<nav class="opportunity-history" aria-label="商机历史"><a href="/?scope=opportunity">今日商机</a>{% for day in opportunity_dates[:7] %}<a href="/archive/{{ day }}?scope=opportunity">{{ day }}</a>{% endfor %}</nav>{% endif %}
     {% if opportunities %}
     <section class="featured-section">
-      <a href="{{ opportunities[0].source_url }}" target="_blank" class="featured-card">
+      <article class="featured-card opportunity-card">
         <div class="featured-image-wrapper">
           {% set _fi = (opportunities[0].title | length * 3 + opportunities[0].source_url | length) % 4 %}
           <img class="featured-image" src="{{ fallback_images[_fi] }}" alt="{{ opportunities[0].title }}" loading="eager">
         </div>
         <div class="featured-content">
-          <div class="featured-source">{{ opportunities[0].source_name or '商机发现' }} · {{ opportunities[0].stage }} · 优先度 {{ '%.0f'|format(opportunities[0].final_score) }}</div>
-          <h2 class="featured-title">{{ opportunities[0].title }}</h2>
+          <div class="featured-source">{{ opportunity.meta(opportunities[0]) }}</div>
+          <h2 class="featured-title"><a href="{{ opportunities[0].source_url }}" target="_blank" rel="noopener noreferrer">{{ opportunities[0].title }}</a></h2>
           {% if opportunities[0].summary %}<p class="featured-summary">{{ opportunities[0].summary }}</p>{% endif %}
+          {{ opportunity.details(opportunities[0]) }}
         </div>
-      </a>
+      </article>
     </section>
     <section class="articles-section">
       <div class="section-label">OPPORTUNITY LEADS</div>
       {% for item in opportunities[1:] %}
-      <a href="{{ item.source_url }}" target="_blank" class="article-card">
+      <article class="article-card opportunity-card">
         <div class="article-body">
-          <div class="article-meta">{{ item.source_name or '商机发现' }} · {{ item.stage }} · {{ item.project_type }} · 优先度 {{ '%.0f'|format(item.final_score) }}</div>
-          <div class="article-title">{{ item.title }}</div>
+          <div class="article-meta">{{ opportunity.meta(item) }}</div>
+          <a class="article-title" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ item.title }}</a>
           {% if item.summary %}<div class="article-summary">{{ item.summary }}</div>{% endif %}
+          {{ opportunity.details(item) }}
         </div>
         <div class="article-thumb">
           {% set _ai = (item.title | length * 3 + item.source_url | length) % 4 %}
           <img src="{{ fallback_images[_ai] }}" alt="{{ item.title }}" loading="lazy">
         </div>
-      </a>
+      </article>
       {% endfor %}
     </section>
     {% else %}
     <section class="articles-section" style="text-align:center;padding:120px 0;">
-      <div style="font-size:14px;color:var(--text-muted);font-weight:500;letter-spacing:0.1em;">今日暂无商机</div>
+      <div style="font-size:14px;color:var(--text-muted);font-weight:500;letter-spacing:0.1em;">当日暂无符合条件的商机，可点击刷新商机重新查找</div>
     </section>
     {% endif %}
     {% elif articles %}
@@ -787,7 +807,7 @@
         网络资讯 · 内部交流 · &copy <script>document.write(new Date().getFullYear())</script> Mhstar
       </div>
       <button class="footer-refresh" onclick="doRefresh(this)">
-        刷新资讯
+        {{ '刷新商机' if is_opportunity else '刷新资讯' }}
       </button>
     </footer>
 
@@ -852,7 +872,8 @@
       var rawWechatKind = params.get('wechat_kind');
       var wechatKind = (rawWechatKind === 'industry' || rawWechatKind === 'local') ? rawWechatKind : 'all';
       var baselineFetchedAt = 0;
-      var maxWaitMs = 3 * 60 * 1000; // 最长等待 3 分钟
+      var maxWaitMs = (scope === 'opportunity' ? 22 : 3) * 60 * 1000;
+      var baselineSuccess = '';
       var pollMs = 2000;
       var startedAt = Date.now();
 
@@ -903,6 +924,15 @@
             : Boolean(status.fetching);
           var timedOut = (Date.now() - startedAt) > maxWaitMs;
 
+          if (scope === 'opportunity' && !isFetching && status.opportunity && status.opportunity.last_success && status.opportunity.last_success !== baselineSuccess) {
+            location.reload();
+            return;
+          }
+          if (scope === 'opportunity' && !isFetching && status.opportunity && status.opportunity.stage === 'FAILED') {
+            setReady('研究失败，请重试');
+            return;
+          }
+
           if (hasNewData && !isFetching) {
             location.reload();
             return;
@@ -923,12 +953,18 @@
       setBusy('采集中...');
 
       // 先记录当前数据时间戳，再触发刷新，避免把旧数据误判为新数据
-      fetchToday()
+      (scope === 'opportunity'
+        ? fetch('/api/opportunities/status').then(function (r) { return r.json(); }).then(function (s) { baselineSuccess = s.last_success || ''; return fetchToday(); })
+        : fetchToday())
         .then(function (today) {
           baselineFetchedAt = getMaxFetchedAt(today);
           return fetch('/api/refresh?scope=' + scope, { method: 'POST' });
         })
-        .then(function () {
+        .then(function (response) {
+          return response.json();
+        })
+        .then(function (result) {
+          if (result.status === 'disabled') { setReady('商机任务未启用'); return; }
           setTimeout(pollUntilDone, 800);
         })
         .catch(function () {

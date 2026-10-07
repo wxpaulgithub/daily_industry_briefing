@@ -6,3 +6,10 @@ output/
 .vscode/
 .idea/
 *.md
+runtime/
+.env
+.env.*
+tests/
+.github/
+scripts/cookie_upload.config.ps1
+**/__pycache__/

@@ -38,9 +38,10 @@ def render_html(
     scope: str = "national",
     wechat_kind: str = "all",
     opportunities: list | None = None,
+    date_display: str | None = None,
 ) -> str:
     """渲染 HTML 文本（不落盘）"""
-    date_display, _ = _get_date_str()
+    date_display = date_display or _get_date_str()[0]
     template_name = "wechat.html" if output_type == "wechat" else "magazine.html"
     template = _jinja_env.get_template(template_name)
     return template.render(
@@ -52,12 +53,15 @@ def render_html(
         opportunities=opportunities or [],
         is_opportunity=scope == "opportunity",
         site_url=SITE_URL,
+        opportunity_dates=sorted((p.stem for p in (OUTPUT_DIR / "opportunities").glob("????-??-??.json")), reverse=True)[:14] if scope == "opportunity" else [],
     )
 
 
-def render_opportunity_html(opportunities: list) -> str:
+def render_opportunity_html(opportunities: list, date_str: str | None = None) -> str:
     """Render opportunities inside the same magazine shell as every news scope."""
-    return render_html([], output_type="web", scope="opportunity", opportunities=opportunities)
+    from services.opportunity.runtime import local_now
+    display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y年%m月%d日") if date_str else local_now().strftime("%Y年%m月%d日")
+    return render_html([], output_type="web", scope="opportunity", opportunities=opportunities, date_display=display)
 
 
 def render_page(articles: list, output_type: str = "web") -> Path:

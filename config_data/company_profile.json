@@ -1,0 +1,11 @@
+{
+  "company_positioning": "面向中国中小制造企业的智能仓储集成商",
+  "ideal_project_budget_min": 500000,
+  "ideal_project_budget_max": 5000000,
+  "acceptable_project_budget_max": 10000000,
+  "strengths": ["堆垛机制造", "非标机械", "输送系统", "WMS", "WCS", "中小型定制集成"],
+  "preferred_project_types": ["新建立库", "旧立库改造", "堆垛机升级", "WMS/WCS", "维保"],
+  "preferred_customer_types": ["机械制造", "汽车零部件", "化工新材料", "电子制造", "家电制造", "中小制造企业"],
+  "preferred_regions": ["江苏", "上海", "浙江", "安徽"],
+  "weaknesses": ["超大型总包经验有限", "电气现场能力仍在建设", "AGV本体非自研"]
+}

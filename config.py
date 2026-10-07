@@ -3,9 +3,11 @@
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # 项目根目录
 BASE_DIR = Path(__file__).parent
+load_dotenv(BASE_DIR / ".env", override=False)
 OUTPUT_DIR = BASE_DIR / "output"
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"

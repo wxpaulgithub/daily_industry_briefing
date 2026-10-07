@@ -4,14 +4,47 @@ on:
   push:
     branches:
       - master
+      - codex/opportunity-tab-v1
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
 
 concurrency:
   group: deploy-industry-briefing-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
+  validate:
+    name: V2 离线回归与镜像验证
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: 安装依赖
+        run: python -m pip install -r requirements.txt
+      - name: 离线回归与编译检查
+        run: |
+          python -m unittest discover -s tests -v
+          python -m compileall -q services tests scripts app.py fetch.py
+          git diff --check
+      - name: Compose 与镜像验证
+        run: |
+          docker compose -p industry_briefing --env-file .env.example config --quiet
+          docker build -t industry-briefing:ci .
+          docker run --rm --entrypoint python industry-briefing:ci scripts/check_opportunity_config.py
+
   deploy:
+    needs: validate
+    if: github.ref == 'refs/heads/master'
     name: 部署到服务器
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -21,6 +54,8 @@ jobs:
     steps:
       - name: SSH 远程部署到服务器
         uses: appleboy/ssh-action@v1
+        env:
+          TARGET_COMMIT: ${{ github.sha }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -29,6 +64,7 @@ jobs:
           timeout: 60s
           command_timeout: 110m
           capture_stdout: false
+          envs: TARGET_COMMIT
           script: |
             set -euo pipefail
 
@@ -42,14 +78,28 @@ jobs:
 
             cd "$PROJECT_DIR"
 
+            if [ ! -f /opt/industry_briefing/.env ]; then
+              echo "错误：缺少服务器环境配置 /opt/industry_briefing/.env"
+              exit 1
+            fi
+
+            # 部署本次已通过验证的提交，避免拉取到另一个尚未验证的 master HEAD。
+            if [[ ! "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "错误：部署提交无效"
+              exit 1
+            fi
+
             echo ">>> 步骤 1/2: 同步代码到 origin/master..."
             git fetch --prune origin
+            git merge-base --is-ancestor "$TARGET_COMMIT" origin/master
             git checkout master
-            git reset --hard origin/master
+            git reset --hard "$TARGET_COMMIT"
 
             echo ">>> 步骤 2/2: 构建并重启 Docker 容器..."
-            docker compose --env-file /opt/industry_briefing/.env down
-            docker compose --env-file /opt/industry_briefing/.env up -d --build --force-recreate --remove-orphans
+            docker compose --env-file /opt/industry_briefing/.env config --quiet
+            docker compose --env-file /opt/industry_briefing/.env build
+            docker compose --env-file /opt/industry_briefing/.env run --rm --no-deps news python scripts/check_opportunity_config.py
+            docker compose --env-file /opt/industry_briefing/.env up -d --force-recreate --remove-orphans
             docker compose --env-file /opt/industry_briefing/.env ps
             CONTAINER_ID="$(docker compose --env-file /opt/industry_briefing/.env ps -q news)"
             if [ -z "$CONTAINER_ID" ]; then
@@ -85,5 +135,7 @@ jobs:
 
             echo ">>> 健康检查: 验证宿主机端口可访问..."
             curl -fsS --retry 5 --retry-delay 2 --retry-connrefused http://127.0.0.1:8088/api/status >/dev/null
+            curl -fsS --retry 5 --retry-delay 2 --retry-connrefused http://127.0.0.1:8088/api/opportunities/status >/dev/null
+            curl -fsS --retry 5 --retry-delay 2 --retry-connrefused http://127.0.0.1:8088/api/opportunities/today >/dev/null
 
             echo "========== 部署完成 =========="

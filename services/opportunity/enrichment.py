@@ -1,4 +1,4 @@
-"""Rule-based field extraction. V1 intentionally does not use an LLM."""
+"""Source-derived field extraction, also used by the V2 fallback."""
 import re
 
 
@@ -19,7 +19,7 @@ def extract_budget(text: str) -> str:
 
 
 def extract_deadline(text: str) -> str:
-    pattern = r"(?:截止时间|投标截止|开标时间)[：:\s]*(20\d{2}[年./-]\d{1,2}[月./-]\d{1,2}日?)"
+    pattern = r"(?:投标截止(?:时间)?|报名截止(?:时间)?|截止时间)[：:\s]*(20\d{2}[年./-]\d{1,2}[月./-]\d{1,2}日?(?:\s+\d{1,2}[:：]\d{2}(?:[:：]\d{2})?)?)"
     match = re.search(pattern, text)
     return match.group(1) if match else ""
 

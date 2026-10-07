@@ -19,17 +19,22 @@ logging.basicConfig(
 
 from services.fetcher import fetch_all_news
 from services.generator import download_article_images, render_both, save_articles_json
-from services.opportunity import fetch_opportunities
-from services.opportunity.storage import save_snapshot as save_opportunity_snapshot
+from services.opportunity.pipeline import run_opportunity_pipeline
 
 
 async def main(scope: str = "national"):
     if scope == "opportunity":
+        from services.opportunity.settings import OpportunitySettings
+        settings = OpportunitySettings.from_env()
+        if not settings.enabled:
+            print("商机任务未启用")
+            return
         print("=" * 40)
         print("  智能仓储商机采集")
         print("=" * 40)
-        items = await fetch_opportunities()
-        path = save_opportunity_snapshot(items)
+        items = await run_opportunity_pipeline()
+        from services.opportunity.runtime import local_now
+        path = settings.output_dir / "opportunities" / f"{local_now().date().isoformat()}.json"
         print(f"\n采集完成: {len(items)} 条商机")
         print(f"快照已保存到 {path}")
         return

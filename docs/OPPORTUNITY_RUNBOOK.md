@@ -1,5 +1,7 @@
 # 商机 V1 运行与调试手册
 
+> 此手册保留为 V1 规则基线记录。当前分支已升级 V2，运行、配置和验收请使用 [`OPPORTUNITY_V2_RUNBOOK.md`](OPPORTUNITY_V2_RUNBOOK.md)。
+
 本手册对应 `codex/opportunity-tab-v1`。它只覆盖商机管线，展讯仍按 `docs/INTELLIGENCE_PLATFORM_PLAN.md` 中的后续 PR 处理。
 
 ## 1. 本地启动

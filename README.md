@@ -54,6 +54,7 @@
 ├── requirements.txt        # Python 依赖
 ├── config_data/
 │   ├── wechat_sources.json     # 公众号账号池与搜索词配置（配置驱动）
+│   ├── company_profile.json    # 商机公司能力、预算和区域偏好
 │   └── opportunity_queries.json # 商机公告来源与发现查询矩阵
 ├── runtime/
 │   └── cookie.txt          # 知乎/B站登录态 Cookie（分节格式）
@@ -62,7 +63,7 @@
 │   ├── generator.py        # HTML 页面生成器（Jinja2）+ 图片本地化
 │   ├── cookie_store.py     # Cookie 文件解析与缓存（支持热重载）
 │   ├── wechat_sources.py   # 公众号配置读取（热加载、scope 过滤）
-│   ├── opportunity/        # 独立商机实体、来源、规则、评分、去重和存储
+│   ├── opportunity/        # AI Provider/Search、证据核验、公司适配、项目记忆、发布
 │   └── skills/             # 可插拽数据源 Skill 目录
 │       ├── __init__.py              # Skill 注册表
 │       ├── toutiao.py               # 今日头条搜索
@@ -110,7 +111,7 @@ python fetch.py
 python app.py
 ```
 
-商机模块的完整运行、调试和故障排查请阅读 [`docs/OPPORTUNITY_RUNBOOK.md`](docs/OPPORTUNITY_RUNBOOK.md)；总体产品边界与展讯后续计划见 [`docs/INTELLIGENCE_PLATFORM_PLAN.md`](docs/INTELLIGENCE_PLATFORM_PLAN.md)。无需启动 Web 服务时，可运行 `python fetch.py --scope opportunity` 只采集商机。
+商机模块已升级为 AI V2，使用独立的联网搜索、项目研究、原文证据核验、公司适配评分与跨日项目记忆。GLM 配置可用智谱 `web-search-pro` 搜索，再由 GLM 分析；完整设置见 [`docs/OPPORTUNITY_V2_RUNBOOK.md`](docs/OPPORTUNITY_V2_RUNBOOK.md) 和 [`.env.example`](.env.example)。未配置模型凭据时回退规则；自动企微推送默认关闭。总体产品边界与展讯后续计划见 [`docs/INTELLIGENCE_PLATFORM_PLAN.md`](docs/INTELLIGENCE_PLATFORM_PLAN.md)。无需启动 Web 服务时可运行 `python fetch.py --scope opportunity`。
 
 采集完成后，`output/` 目录生成以下文件：
 
@@ -1065,7 +1066,7 @@ GET {image_url}
 | Tab | scope 值 | 对应 Skill | 展示上限 |
 |-----|----------|-----------|----------|
 | 国内 | `national` | 今日头条、政策标准、招投标、行业媒体、展会协会 | 24 条 |
-| 商机 | `opportunity` | 独立公告/搜索来源、规则分类与跨日去重；复用资讯页完整界面壳层 | 30 条 |
+| 商机 | `opportunity` | AI 发现/研究、证据核验、公司适配与项目记忆；复用资讯页完整界面壳层 | 网页最多10条，企微最多5条 |
 | 本地 | `local` | 本地项目、本地公众号 RSS、本地白名单公众号 | 12 条 |
 | 公众号 | `wechat` | 公众号 RSS（wechat 范围）、搜狗搜索（可选） | 18 条 |
 | 发现 | `discover` | 知乎发现、B站发现 | 18 条 |
@@ -1240,7 +1241,11 @@ docker-compose up -d
 - Cookie 文件挂载到容器外（`../news_runtime:/runtime`）
 - 输出文件挂载到宿主机（`./output:/app/output`）
 - 通过 `SITE_URL` 环境变量设置公开 URL
-- 内置健康检查
+- 健康检查覆盖普通服务与 AI 商机状态接口
+- Web 先启动，启动资讯采集与图片下载在后台执行
+- AI 状态和企微回执持久化在 `/runtime`，模型密钥由服务器 `.env` 注入
+
+自动部署工作流在当前开发分支先执行离线回归、Compose 和镜像验证；`master` 验证通过后部署该次提交。服务器构建后会运行 `scripts/check_opportunity_config.py` 预检，再替换容器并检查三个状态/数据接口。操作与配置见 [`V2 运行手册`](docs/OPPORTUNITY_V2_RUNBOOK.md)。
 
 ### 手动部署
 
@@ -1335,7 +1340,7 @@ WERSS_TOKEN_EXPIRY_URL=http://你的-we-mp-rss/token-expiry-api
 WERSS_TOKEN_WARNING_HOURS=12,3
 ```
 
-因为你们的部署流程会执行 `git reset --hard origin/master`，所以不要把这些敏感值直接手改进受 Git 管理的配置文件里；放在服务器本地 `.env` 最合适。
+部署流程会重置服务器受 Git 管理的代码到本次已验证的 master 提交。敏感配置保存在服务器本地 `.env`，通过 Compose 注入容器。
 
 ### 告警测试
 
@@ -1387,6 +1392,10 @@ python fetch.py
 | `/api/news/{date}` | GET | 指定日期资讯 JSON |
 | `/api/opportunities/today` | GET | 今日商机 JSON |
 | `/api/opportunities/{date}` | GET | 指定日期商机 JSON |
+| `/api/opportunities/status` | GET | AI 研究、用量计数和发布状态，无凭据 |
+| `/api/opportunities/research` | POST | 手动研究并保存商机 |
+| `/api/opportunities/publish-test` | POST | 商机机器人通道测试，不含真实项目 |
+| `/api/opportunities/publish-today` | POST | 从今日快照发布新增/变化商机 |
 | `/api/status` | GET | 服务状态（采集中/完成/可用日期列表） |
 | `/api/wechat-rss/health-check` | GET/POST | 手动执行公众号 RSS 授权健康检查 |
 | `/api/zhihu-cookie/health-check` | GET/POST | 手动执行知乎 Cookie 健康检查 |

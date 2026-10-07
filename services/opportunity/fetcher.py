@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 
 import httpx
-import trafilatura
 
 from config import CONFIG_DATA_DIR, MAX_OPPORTUNITIES, REQUEST_TIMEOUT, USER_AGENT
 from .enrichment import extract_budget, extract_deadline, extract_location, extract_owner
@@ -23,22 +22,24 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def build_opportunity(candidate: OpportunityCandidate) -> ProjectOpportunity | None:
+def build_opportunity(candidate: OpportunityCandidate, *, include_inactive: bool = False) -> ProjectOpportunity | None:
     text = candidate_text(candidate)
     relevance_value, matched, risks = relevance(candidate)
     stage = classify_stage(text)
-    if not should_keep(relevance_value, stage) or is_too_old(stage, candidate.published_ts):
+    allowed = should_keep(relevance_value, stage) or (include_inactive and relevance_value >= 38 and stage == "CLOSED")
+    if not allowed or (not include_inactive and is_too_old(stage, candidate.published_ts)):
         return None
     project_type = classify_type(text)
     province, city = extract_location(text)
     deadline = extract_deadline(text)
-    source_value = source_score(candidate.source_name, candidate.url)
+    source_url = candidate.verified_url or candidate.url
+    source_value = source_score(candidate.source_name, source_url)
     urgency_value = urgency_score(stage, candidate.published_ts, deadline)
     return ProjectOpportunity(
         title=candidate.title,
-        source_url=candidate.url,
+        source_url=source_url,
         source_name=candidate.source_name,
-        discovery_url=candidate.url if candidate.source_name.startswith("搜索发现") else "",
+        discovery_url=candidate.url if candidate.source_name.startswith("搜索发现") or candidate.discovery_method == "ai_search" else "",
         owner=extract_owner(text), province=province, city=city,
         published=candidate.published, published_ts=candidate.published_ts,
         deadline=deadline, budget=extract_budget(text), summary=candidate.summary,
@@ -65,24 +66,20 @@ def process_candidates(candidates: list[OpportunityCandidate], limit: int = MAX_
     return sorted(by_key.values(), key=lambda x: (x.stage != "PROCUREMENT", -x.final_score))[:limit]
 
 
-async def _enrich_candidates(client: httpx.AsyncClient, candidates: list[OpportunityCandidate]) -> int:
+async def _enrich_candidates(client: httpx.AsyncClient, candidates: list[OpportunityCandidate], config: dict | None = None) -> int:
     """Fetch detail text only for plausible candidates; facts remain source-derived."""
     plausible = [candidate for candidate in candidates if relevance(candidate)[0] >= 25][:60]
     semaphore = asyncio.Semaphore(8)
+    from .verifier import SourceVerifier
+    verifier = SourceVerifier(config or {}, client)
 
     async def enrich(candidate: OpportunityCandidate) -> bool:
         async with semaphore:
             try:
-                response = await client.get(candidate.url, follow_redirects=True)
-                if response.status_code != 200:
+                document = await verifier.fetch(candidate.url)
+                if not document:
                     return False
-                content_type = response.headers.get("content-type", "")
-                if "html" not in content_type.lower() and not response.text.lstrip().startswith("<"):
-                    return False
-                text = trafilatura.extract(response.text, include_links=False, include_images=False) or ""
-                text = " ".join(text.split())
-                if len(text) < 40:
-                    return False
+                text = document.text
                 candidate.content = text[:8000]
                 if not candidate.summary:
                     candidate.summary = text[:260] + ("…" if len(text) > 260 else "")
@@ -96,18 +93,25 @@ async def _enrich_candidates(client: httpx.AsyncClient, candidates: list[Opportu
     return sum(bool(result) for result in results)
 
 
-async def fetch_opportunities(config_path: Path = CONFIG_PATH) -> list[ProjectOpportunity]:
-    config = load_config(config_path)
+async def fetch_candidates(config: dict, *, include_existing_skills: bool = True) -> list[OpportunityCandidate]:
     sources = [
         OfficialBiddingSource(config.get("official_sources") or []),
         OpportunitySearchSource(config.get("queries") or []),
     ]
+    if include_existing_skills:
+        from .sources.existing_skills import ExistingSkillsSource
+        sources.append(ExistingSkillsSource())
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
-        batches = await asyncio.gather(*(source.fetch(client) for source in sources))
-        candidates = [item for batch in batches for item in batch]
-        enriched_count = await _enrich_candidates(client, candidates)
-    selected = process_candidates(candidates)
+        batches = await asyncio.gather(*(source.fetch(client) for source in sources), return_exceptions=True)
+        candidates = [item for batch in batches if not isinstance(batch, BaseException) for item in batch]
+        enriched_count = await _enrich_candidates(client, candidates, config)
     logger.info("[Opportunity] source candidates=%d", len(candidates))
     logger.info("[Opportunity] detail enriched=%d", enriched_count)
-    logger.info("[Opportunity] relevant=%d deduplicated=%d", len(selected), len(selected))
-    return selected
+    return candidates
+
+
+async def fetch_opportunities(config_path: Path = CONFIG_PATH, *, settings=None) -> list[ProjectOpportunity]:
+    from .ai_researcher import research_opportunities
+    from .settings import OpportunitySettings
+    settings = settings or OpportunitySettings.from_env()
+    return await research_opportunities(load_config(config_path), settings)
