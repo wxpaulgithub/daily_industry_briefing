@@ -94,6 +94,20 @@ def classify_stage(text: str) -> str:
     return "UNKNOWN"
 
 
+def candidate_stage(candidate: OpportunityCandidate) -> str:
+    # The notice headline identifies its stage. Contract conditions such as
+    # "骗取中标" or sidebar award links must not override an open tender title.
+    title = candidate.title
+    stage = classify_stage(title)
+    if stage != "UNKNOWN":
+        return stage
+    if any(term in title for term in ("采购意向", "意向公开", "采购预告", "需求征集", "技术支持征集")):
+        return "EARLY_SIGNAL"
+    if any(term in title for term in ("招标", "询比", "询价", "采购")):
+        return "PROCUREMENT"
+    return classify_stage(candidate_text(candidate))
+
+
 def should_keep(score: float, stage: str) -> bool:
     return score >= 38 and stage in {"EARLY_SIGNAL", "PROCUREMENT", "AWARD"}
 

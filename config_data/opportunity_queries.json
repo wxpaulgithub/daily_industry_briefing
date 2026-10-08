@@ -29,6 +29,8 @@
     "物流自动化 输送分拣 项目",
     "仓储改造 维保 招标"
   ],
-  "trusted_domains": [],
+  "trusted_domains": [
+    "cg.ccteg.cn"
+  ],
   "authoritative_domains": []
 }

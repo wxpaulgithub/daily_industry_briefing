@@ -15,7 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from services.opportunity.ai_client import create_llm_provider
 from services.opportunity.ai_researcher import research_opportunities
-from services.opportunity.evaluation import quality_metrics, validate_dataset, longitudinal_metrics
+from services.opportunity.evaluation import pipeline_metrics, quality_metrics, validate_dataset, longitudinal_metrics
 from services.opportunity.facts import SHANGHAI, normalize_url
 from services.opportunity.fetcher import load_config
 from services.opportunity.models import OpportunityCandidate, ProjectOpportunity
@@ -111,6 +111,8 @@ async def run(args):
         count = len(cases) if cases else args.limit
         provider_settings = replace(settings, provider=name, fallback_provider="", auto_publish=False,
             runtime_dir=isolated, output_dir=isolated / "snapshots", research_limit=count,
+            research_hard_limit=count, verified_target=count, triage_enabled=args.mode != "research",
+            search_provider=getattr(args, "search_provider", None) or settings.search_provider,
             candidate_limit=max(count, settings.candidate_limit), display_limit=max(count, settings.display_limit),
             max_llm_calls=max(2 * count, settings.max_llm_calls))
         tracker = UsageTracker(provider_settings)
@@ -130,6 +132,8 @@ async def run(args):
                 provider=provider, search=FixedSearch() if candidates is not None else None, verifier=verifier)
         report["providers"][name] = {"duration_seconds": round(time.monotonic()-started, 2),
             "count": len(items), "metrics": quality_metrics(cases, items),
+            "pipeline_metrics": pipeline_metrics(cases, read_json(isolated / "opportunity_research_diagnostics.json")),
+            "diagnostics": read_json(isolated / "opportunity_research_diagnostics.json"),
             "status": read_json(isolated / "opportunity_ai_status.json"),
             "usage": read_json(isolated / "opportunity_usage.json"), "items": [item.to_dict() for item in items],
             "limits": {"research": count, "discovery_search": settings.discovery_search_budget,
@@ -145,6 +149,7 @@ if __name__ == "__main__":
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--provider", choices=["openai", "glm"])
     parser.add_argument("--compare", action="store_true")
+    parser.add_argument("--search-provider", choices=["auto", "openai", "glm", "existing"], help="Independent search provider; --provider selects the analysis model")
     parser.add_argument("--mode", choices=["research", "discovery", "longitudinal"], default=None)
     parser.add_argument("--candidates", type=Path)
     parser.add_argument("--prepare", action="store_true")

@@ -692,52 +692,21 @@
     <!-- 商机内容复用资讯页全部壳层，仅替换内容字段 -->
     {% if is_opportunity %}
     {% import 'opportunity_fields.html' as opportunity %}
-    <style>
-      .opportunity-card .featured-summary, .opportunity-card .article-summary { display: block; -webkit-line-clamp: unset; }
-      .opportunity-card .article-title { display: block; color: inherit; text-decoration: none; -webkit-line-clamp: unset; }
-      .opportunity-card .featured-title a { color: inherit; text-decoration: none; }
-      .opportunity-facts { margin-top: 8px; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
-      .opportunity-note { margin-top: 8px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
-      .opportunity-note strong { font-weight: 500; }
-      .opportunity-source, .opportunity-evidence { margin-top: 12px; font-size: 12px; color: var(--text-secondary); }
-      .opportunity-source a, .opportunity-proof a, .opportunity-history a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--border); }
-      .opportunity-evidence summary { cursor: pointer; color: var(--text-muted); }
-      .opportunity-proof { margin-top: 10px; line-height: 1.7; overflow-wrap: anywhere; }
-      .opportunity-proof a { display: block; margin-top: 3px; }
-      .opportunity-history { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-bottom: 24px; }
-      .opportunity-card { align-items: flex-start; }
-      .featured-card.opportunity-card { align-items: stretch; }
-    </style>
+    <link rel="stylesheet" href="/static/opportunity.css">
     {% if opportunity_dates %}<nav class="opportunity-history" aria-label="商机历史"><a href="/?scope=opportunity">今日商机</a>{% for day in opportunity_dates[:7] %}<a href="/archive/{{ day }}?scope=opportunity">{{ day }}</a>{% endfor %}</nav>{% endif %}
     {% if opportunities %}
-    <section class="featured-section">
-      <article class="featured-card opportunity-card">
-        <div class="featured-image-wrapper">
-          {% set _fi = (opportunities[0].title | length * 3 + opportunities[0].source_url | length) % 4 %}
-          <img class="featured-image" src="{{ fallback_images[_fi] }}" alt="{{ opportunities[0].title }}" loading="eager">
-        </div>
-        <div class="featured-content">
-          <div class="featured-source">{{ opportunity.meta(opportunities[0]) }}</div>
-          <h2 class="featured-title"><a href="{{ opportunities[0].source_url }}" target="_blank" rel="noopener noreferrer">{{ opportunities[0].title }}</a></h2>
-          {% if opportunities[0].summary %}<p class="featured-summary">{{ opportunities[0].summary }}</p>{% endif %}
-          {{ opportunity.details(opportunities[0]) }}
-        </div>
-      </article>
-    </section>
-    <section class="articles-section">
-      <div class="section-label">OPPORTUNITY LEADS</div>
-      {% for item in opportunities[1:] %}
-      <article class="article-card opportunity-card">
-        <div class="article-body">
-          <div class="article-meta">{{ opportunity.meta(item) }}</div>
-          <a class="article-title" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ item.title }}</a>
-          {% if item.summary %}<div class="article-summary">{{ item.summary }}</div>{% endif %}
-          {{ opportunity.details(item) }}
-        </div>
-        <div class="article-thumb">
-          {% set _ai = (item.title | length * 3 + item.source_url | length) % 4 %}
-          <img src="{{ fallback_images[_ai] }}" alt="{{ item.title }}" loading="lazy">
-        </div>
+    <section class="articles-section opportunity-directory">
+      <div class="section-label">商机目录 · {{ opportunities | length }} 条</div>
+      {% for item in opportunities %}
+      <article class="opportunity-directory-item">
+        <details class="opportunity-disclosure">
+          <summary class="opportunity-directory-heading">
+            <div class="opportunity-directory-meta">{{ opportunity.meta(item) }}</div>
+            <h2 class="opportunity-directory-title">{{ item.title }}</h2>
+            <span class="opportunity-disclosure-button"><span class="opportunity-disclosure-open">展开</span><span class="opportunity-disclosure-close">收起</span></span>
+          </summary>
+          <div class="opportunity-disclosure-body">{{ opportunity.details(item) }}</div>
+        </details>
       </article>
       {% endfor %}
     </section>

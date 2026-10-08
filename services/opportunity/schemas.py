@@ -68,3 +68,14 @@ def strict_schema(model: type[BaseModel]) -> dict:
                 walk(value)
     walk(schema)
     return schema
+
+
+class TriageDecision(StrictModel):
+    id: int = Field(ge=1)
+    worth_research: bool
+    score: float = Field(ge=0, le=100)
+    reason: str = Field(max_length=200)
+
+
+class TriageBatch(StrictModel):
+    decisions: list[TriageDecision]

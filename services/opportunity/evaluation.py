@@ -135,3 +135,25 @@ def longitudinal_metrics(snapshots):
             "recorded_delivery_events": len(delivery_events), "repeated_deliveries": repeated_deliveries,
             "recorded_delivery_duplicate_rate": len(repeated_deliveries) / len(delivery_events) if delivery_events else None,
             "scope": "reappearance includes retained reading items; delivery events use persisted acknowledgement timestamps"}
+
+
+def pipeline_metrics(cases, diagnostics):
+    """Explain labeled misses against all pipeline candidates, not just Top N."""
+    rows = diagnostics.get("pipeline", [])
+    result, counts = [], {}
+    for case in cases:
+        if not case.get("expected_relevant"):
+            continue
+        aliases = {normalize_url(url) for url in [case["url"], *case.get("url_aliases", [])]}
+        matches = [row for row in rows if normalize_url(row.get("url", "")) in aliases
+                   or title_identity(row.get("title", "")) == title_identity(case["title"])]
+        retained = next((row for row in matches if row.get("pipeline_stage") == "retained"), None)
+        row = retained or next((row for row in matches if not row.get("drop_reason")), None) or (matches[-1] if matches else None)
+        reason = row.get("drop_reason", "") if row else "search_miss"
+        entry = {"title": case["title"], "url": case["url"], "pipeline_stage": row.get("pipeline_stage") if row else "discovery",
+                 "drop_reason": reason, "retained": bool(retained)}
+        result.append(entry)
+        if reason:
+            counts[reason] = counts.get(reason, 0) + 1
+    return {"targets": result, "miss_reasons": counts, "discovery_coverage": diagnostics.get("discovery_coverage", {}),
+            "scope": "labeled targets only; search_miss does not identify its cause"}

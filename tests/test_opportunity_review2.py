@@ -126,14 +126,14 @@ class P0RegressionTests(unittest.TestCase):
 
 class BudgetAndSourcesTests(unittest.TestCase):
     def test_discovery_cannot_consume_verification_allowance(self):
-        tracker = UsageTracker(OpportunitySettings(total_search_budget=24))
+        tracker = UsageTracker(OpportunitySettings(total_search_budget=24, discovery_search_budget=8, verification_search_budget=12))
         self.assertEqual(tracker.reserve(20, phase="discovery"), 8)
         with self.assertRaisesRegex(RuntimeError, "search_call_budget_exhausted"):
             tracker.reserve(1, phase="discovery")
         self.assertEqual(tracker.reserve(12, phase="verification"), 12)
 
     def test_success_releases_unused_reservation_failure_keeps_it(self):
-        tracker = UsageTracker(OpportunitySettings(total_search_budget=24))
+        tracker = UsageTracker(OpportunitySettings(total_search_budget=24, discovery_search_budget=8, verification_search_budget=12))
         allowance = tracker.reserve(6)
         tracker.settle_search("discovery", allowance, 1)
         self.assertEqual(tracker.remaining("discovery"), 7)

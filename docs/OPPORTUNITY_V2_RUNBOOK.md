@@ -167,3 +167,31 @@ git diff --check
 反馈兼容原有 `{"decisions": [...]}` 和数组。`reject` / `irrelevant` 按项目键确定性排除，最近50条反馈进入研究上下文，当前不训练模型。
 
 接口依据：[OpenAI Web Search](https://developers.openai.com/api/docs/guides/tools-web-search)、[Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses)、[GLM API 文档](https://docs.bigmodel.cn/llms.txt)。
+
+
+## 8. 真实质量排查
+
+`last_researched`是本轮计划数，`last_research_completed`是已完成数；每项结束更新调用量。`runtime/opportunity_research_diagnostics.json`记录发现候选、研究名额、语义筛除/来源不足/Provider错误、结果风险及最终是否保留。来源失败与验证码页面有独立原因，HTTP200不等于有效公告原文。
+
+比较GPT日报时同时核实原文报名窗口和参与资格，不只看投标截止。2026-10-08实例及改动见OPPORTUNITY_QUALITY_ITERATION_2026-10-08.md。修改Python后重启本地服务再运行，历史快照保持历史记录，下一次刷新才生成新结果。
+
+
+## 9. 第三轮召回流程及调试
+
+默认流程为八个全国固定搜索通道 → 根据真实结果补搜最多两次 → 硬排除与多样候选池60条 → 一次不联网的Semantic Triage → 六条一批研究、软12/硬18 → 本轮取得五条核验通过、时效可用且等级A/B的去重项目时停止。已复用历史项目与preview均不占用停止目标。页面仍可展示明确标记的待核验线索；preview仍不得推送。
+
+默认发现/验证/总搜索预算为12/24/36，模型调用上限64（含搜索与重试）；超时、队列耗尽或预算耗尽均可提前停止，不保证五条。OPPORTUNITY_AI_RESEARCH_LIMIT现在是软边界，真正数量上限是OPPORTUNITY_RESEARCH_HARD_LIMIT；波次大小和目标分别使用OPPORTUNITY_RESEARCH_WAVE_SIZE、OPPORTUNITY_VERIFIED_TARGET。
+
+本地.env已仅更新上述非秘密预算及候选参数；密钥、Provider和自动推送配置保留。服务进程需要重启才会使用新代码和环境值。云端.env若已有旧预算，会覆盖Compose默认值，部署前同步这些参数。
+
+1. 先运行python scripts/check_opportunity_config.py，查看limits与warnings；结果不打印密钥。GLM/OpenAI八通道至少需要10次发现预算（其中2次供既有搜索）；默认12留2次补搜。ExistingSearch每个查询使用两次HTTP搜索，完整八通道及两次补搜需发现预算22，验证18个候选基础预算36；总预算须另行配置，不会自动扩大上限。
+2. 重启本地服务，再由商机刷新触发完整运行。先看是否进入TRIAGING、是否分批研究；不要把绿色HTTP200或测试通过理解为召回达标。
+3. runtime/opportunity_research_diagnostics.json包含discovery_coverage各方向请求/返回/预算/异常及进入候选池、分流、研究、保留的数量；returned是该方向返回线索，不是已核验商机数量。零结果仅表示此次未找到，可用剩余额度做专项补搜，不能断言市场没有项目。
+4. pipeline与drop_reason_counts包含全部去重候选的去向；candidates包含已研究项目的source_resolution和保留情况。历史年份标题无可信新发布日期/有效未来截止，不进入最终推荐；重新招标字样只允许继续核验，不证明时效。
+5. 高分候选首次取不到相关原文时，Source Resolver最多追加两种查询，总共不超过3次。原URL始终先尝试；业主设备、已知官方域名、地区设备等按已知线索选择；额外查询只使用扣除后续基础查找额度后的余额。找到了另一个页面仍需通过原有项目关联及逐字证据核验，不绕过验证码或登录，不启用浏览器采集。
+6. python scripts/test_opportunity_ai_live.py的--provider选择分析模型，--search-provider可独立选择auto/openai/glm/existing。research模式对冻结原文做分析，不运行Triage或搜索；discovery模式报告pipeline_metrics各人工标注目标在哪一步未进入结果。只有显式--live才调用真实模型；本轮未调用收费API。
+
+
+### 429与搜索失败观察
+
+OPPORTUNITY_SEARCH_CONCURRENCY默认1；八个通道排队执行，GLM原文查找复用此限制。discovery_status为failed时不能把候选总数理解为联网搜索成功；partial表示至少一个通道因请求失败或预算不足未完成。持续输出OpportunityDiscovery日志显示通道、返回量和稳定错误码。429具体原因需结合服务商error.code/控制台判断，不能仅凭HTTP状态断言是并发。修改代码后需要重启再由用户触发验证；不会自动补发收费请求。

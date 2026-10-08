@@ -32,20 +32,27 @@ class OpportunitySettings:
     glm_web_search_enabled: bool = False
     reasoning: str = "medium"
     research_limit: int = 12
-    candidate_limit: int = 40
+    research_wave_size: int = 6
+    research_hard_limit: int = 18
+    verified_target: int = 5
+    triage_enabled: bool = True
+    resolver_max_searches: int = 3
+    resolver_min_score: int = 75
+    candidate_limit: int = 60
     digest_limit: int = 5
     display_limit: int = 10
+    search_concurrency: int = 1
     concurrency: int = 2
     task_timeout: int = 1200
     request_timeout: int = 180
     max_tool_calls: int = 12
-    discovery_search_budget: int = 8
-    verification_search_budget: int = 12
-    total_search_budget: int | None = None
+    discovery_search_budget: int = 12
+    verification_search_budget: int = 24
+    total_search_budget: int | None = 36
     memory_days: int = 14
     memory_limit: int = 50
     memory_recheck_hours: int = 24
-    max_llm_calls: int = 40
+    max_llm_calls: int = 64
     max_output_tokens: int = 8000
     publish_attempts: int = 3
     publish_retry_seconds: int = 600
@@ -81,19 +88,26 @@ class OpportunitySettings:
             ),
             reasoning=os.getenv("OPPORTUNITY_AI_REASONING", os.getenv("OPENAI_OPPORTUNITY_REASONING", "medium")).strip(),
             research_limit=env_int("OPPORTUNITY_AI_RESEARCH_LIMIT", 12, maximum=30),
-            candidate_limit=env_int("OPPORTUNITY_CANDIDATE_LIMIT", 40, maximum=100),
+            research_wave_size=env_int("OPPORTUNITY_RESEARCH_WAVE_SIZE", 6, maximum=10),
+            research_hard_limit=env_int("OPPORTUNITY_RESEARCH_HARD_LIMIT", 18, maximum=20),
+            verified_target=env_int("OPPORTUNITY_VERIFIED_TARGET", 5, maximum=5),
+            triage_enabled=env_bool("OPPORTUNITY_TRIAGE_ENABLED", True),
+            resolver_max_searches=env_int("OPPORTUNITY_RESOLVER_MAX_SEARCHES", 3, maximum=4),
+            resolver_min_score=env_int("OPPORTUNITY_RESOLVER_MIN_SCORE", 75, maximum=100),
+            candidate_limit=env_int("OPPORTUNITY_CANDIDATE_LIMIT", 60, maximum=100),
             digest_limit=env_int("OPPORTUNITY_DIGEST_LIMIT", 5, maximum=5),
             display_limit=env_int("OPPORTUNITY_DISPLAY_LIMIT", 10, maximum=20),
+            search_concurrency=env_int("OPPORTUNITY_SEARCH_CONCURRENCY", 1, maximum=4),
             concurrency=env_int("OPPORTUNITY_AI_CONCURRENCY", 2, maximum=4),
             task_timeout=env_int("OPPORTUNITY_TASK_TIMEOUT", 1200, maximum=1800),
             request_timeout=env_int("OPPORTUNITY_AI_REQUEST_TIMEOUT", 180, maximum=600),
             max_tool_calls=env_int("OPENAI_OPPORTUNITY_MAX_TOOL_CALLS", 12, minimum=0, maximum=40),
-            discovery_search_budget=env_int("OPPORTUNITY_DISCOVERY_SEARCH_BUDGET", 8, minimum=0, maximum=100),
-            verification_search_budget=env_int("OPPORTUNITY_VERIFY_SEARCH_BUDGET", 12, minimum=0, maximum=100),
+            discovery_search_budget=env_int("OPPORTUNITY_DISCOVERY_SEARCH_BUDGET", 12, minimum=0, maximum=100),
+            verification_search_budget=env_int("OPPORTUNITY_VERIFY_SEARCH_BUDGET", 24, minimum=0, maximum=100),
             total_search_budget=env_int("OPPORTUNITY_TOTAL_SEARCH_BUDGET",
-                int(os.getenv("OPENAI_OPPORTUNITY_MAX_TOOL_CALLS") or 24), minimum=0, maximum=200),
+                int(os.getenv("OPENAI_OPPORTUNITY_MAX_TOOL_CALLS") or 36), minimum=0, maximum=200),
             memory_recheck_hours=env_int("OPPORTUNITY_MEMORY_RECHECK_HOURS", 24, maximum=168),
-            max_llm_calls=env_int("OPPORTUNITY_MAX_LLM_CALLS", 40, maximum=100),
+            max_llm_calls=env_int("OPPORTUNITY_MAX_LLM_CALLS", 64, maximum=100),
             max_output_tokens=env_int("OPENAI_OPPORTUNITY_MAX_OUTPUT_TOKENS", 8000, maximum=16000),
             publish_attempts=env_int("OPPORTUNITY_PUBLISH_ATTEMPTS", 3, maximum=3),
             publish_retry_seconds=env_int("OPPORTUNITY_PUBLISH_RETRY_SECONDS", 600, minimum=60),

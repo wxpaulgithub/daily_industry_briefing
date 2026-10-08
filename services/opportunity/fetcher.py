@@ -8,7 +8,7 @@ import httpx
 from config import CONFIG_DATA_DIR, MAX_OPPORTUNITIES, REQUEST_TIMEOUT, USER_AGENT
 from .enrichment import extract_budget, extract_deadline, extract_location, extract_owner
 from .models import OpportunityCandidate, ProjectOpportunity
-from .rules import candidate_text, classify_stage, classify_type, is_too_old, relevance, should_keep
+from .rules import candidate_text, candidate_stage, classify_type, is_too_old, relevance, should_keep
 from .scoring import final_score, source_score, urgency_score
 from .sources import OfficialBiddingSource, OpportunitySearchSource
 
@@ -25,7 +25,7 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
 def build_opportunity(candidate: OpportunityCandidate, *, include_inactive: bool = False) -> ProjectOpportunity | None:
     text = candidate_text(candidate)
     relevance_value, matched, risks = relevance(candidate)
-    stage = classify_stage(text)
+    stage = candidate_stage(candidate)
     allowed = should_keep(relevance_value, stage) or (include_inactive and relevance_value >= 38 and stage == "CLOSED")
     if not allowed or (not include_inactive and is_too_old(stage, candidate.published_ts)):
         return None
@@ -86,6 +86,18 @@ async def _enrich_candidates(client: httpx.AsyncClient, candidates: list[Opportu
                 candidate.content_hash = content_signature(text) if not document.attachment_urls and not document.risk_flags else ""
                 candidate.verified_url = document.url
                 candidate.content = text[:8000]
+                from .freshness_guard import body_publication
+                from .facts import parse_date
+                publication = body_publication(text)
+                # Raw HTML publication metadata is included in document text.
+                if not publication and "[网页发布元数据]" in text:
+                    import re
+                    match = re.search(r"20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}", text[:600])
+                    publication = match.group(0) if match else ""
+                if publication:
+                    candidate.published = publication
+                    candidate.published_ts = parse_date(publication).timestamp()
+
                 if not candidate.summary:
                     candidate.summary = text[:260] + ("…" if len(text) > 260 else "")
                 return True

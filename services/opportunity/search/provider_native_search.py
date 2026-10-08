@@ -11,20 +11,20 @@ class NativeSearchProvider(SearchProvider):
     def __init__(self, provider):
         self.provider = provider
 
+    @property
+    def usage(self):
+        return self.provider.usage
+
     async def discover(self, prompt):
+        from .coverage import discover_coverage
+        async def planner(context):
+            return (await self.provider.discover(DISCOVERY_INSTRUCTIONS, context + "\n根据实际结果和空缺通道生成最多2条补充搜索词。")).queries
+        return await discover_coverage(self, prompt, planner)
+
+    async def search_query(self, query, *, phase="discovery"):
         result = await self.provider.generate_result(CandidateBatch, DISCOVERY_INSTRUCTIONS,
-            prompt + "\n最多30个候选。", web_search=True, search_budget=6, search_phase="discovery")
-        candidates = self._candidates(result)
-        if result.data.expanded_queries and len(candidates) < 20 and self.provider.usage.remaining("discovery"):
-            try:
-                extra = await self.provider.generate_result(CandidateBatch, DISCOVERY_INSTRUCTIONS,
-                    prompt + "\n针对新表述扩展搜索：" + "；".join(result.data.expanded_queries[:4]),
-                    web_search=True, search_budget=2, search_phase="discovery")
-                candidates.extend(self._candidates(extra))
-            except Exception:
-                pass
-        by_url = {normalize_url(row.url): row for row in candidates if normalize_url(row.url)}
-        return list(by_url.values())[:30]
+            query + "\n使用一次联网搜索，只列出搜索工具实际返回且符合方向的项目，最多12个，不虚构URL。", web_search=True, search_budget=1, search_phase=phase)
+        return self._candidates(result)
 
     async def find_sources(self, candidate):
         result = await self.provider.generate_result(CandidateBatch, DISCOVERY_INSTRUCTIONS,

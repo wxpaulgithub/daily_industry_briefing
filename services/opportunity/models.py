@@ -42,6 +42,10 @@ class OpportunityCandidate:
     snippet_origin: str = ""
     search_sources: list[dict] = field(default_factory=list)
     content_hash: str = ""
+    discovery_channels: list[str] = field(default_factory=list)
+    triage_score: float = 0.0
+    triage_reason: str = ""
+    freshness_flags: list[str] = field(default_factory=list)
 
 
 @dataclass

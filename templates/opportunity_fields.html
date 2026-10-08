@@ -1,29 +1,48 @@
 {% macro meta(item) -%}
-  {% set priorities = {'A':'A级 · 重点关注', 'B':'B级 · 值得跟进', 'WATCH':'观察', 'DROP':'低优先度'} %}
-  {% set stages = {'EARLY_SIGNAL':'采购前期', 'PROCUREMENT':'采购/招标', 'AWARD':'已中标', 'CLOSED':'已结束', 'UNKNOWN':'阶段待核实'} %}
-  {{ priorities.get(item.priority, '观察') }} · {{ stages.get(item.stage, '阶段待核实') }}
-  {% if item.is_updated %} · 项目更新{% elif item.is_new %} · 新发现{% endif %}
-  {% if item.research_mode == 'preview' %} · AI 初步判断，搜索摘要待核验{% elif item.research_mode == 'fallback' %} · 规则筛选，待核验{% endif %}
+  {% set priorities = {'A':'重点关注', 'B':'值得跟进', 'WATCH':'观察', 'DROP':'低优先度'} %}
+  {% set stages = {'EARLY_SIGNAL':'采购前期', 'PROCUREMENT':'采购 / 招标', 'AWARD':'已中标', 'CLOSED':'已结束', 'UNKNOWN':'阶段待核实'} %}
+  <span class="opportunity-priority {{ 'is-priority' if item.priority in ['A', 'B'] else '' }}">{{ priorities.get(item.priority, '观察') }}</span>
+  <span class="opportunity-stage">{{ stages.get(item.stage, '阶段待核实') }}</span>
+  {% if item.is_updated %}<span class="opportunity-change">项目更新</span>{% elif item.is_new %}<span class="opportunity-change">新收录</span>{% endif %}
+{%- endmacro %}
+
+{% macro narrative(label, text, limit=150) -%}
+  {% if text %}
+  {% if text | length > limit %}
+  <details class="opportunity-narrative">
+    <summary><span class="opportunity-section-title">{{ label }}</span><span class="opportunity-expand">展开</span><span class="opportunity-excerpt">{{ text[:limit] }}…</span></summary>
+    <p class="opportunity-full-text">{{ text }}</p>
+  </details>
+  {% else %}
+  <section class="opportunity-narrative"><h3 class="opportunity-section-title">{{ label }}</h3><p class="opportunity-full-text">{{ text }}</p></section>
+  {% endif %}
+  {% endif %}
 {%- endmacro %}
 
 {% macro details(item) -%}
-  <div class="opportunity-facts">
-    {{ item.province or item.city or '地区待核实' }}{% if item.province and item.city and item.province != item.city %} · {{ item.city }}{% endif %}
-    · {{ item.budget or '预算待核实' }}
-    {% if item.deadline %} · 截止 {{ item.deadline }}{% endif %}
-  </div>
-  {% if item.owner %}<div class="opportunity-facts">业主：{{ item.owner }}</div>{% endif %}
-  {% if item.published %}<div class="opportunity-facts">发布：{{ item.published }}</div>{% endif %}
-  {% if item.technical_scope %}<div class="opportunity-note">涉及：{{ item.technical_scope | join(' / ') }}</div>{% endif %}
-  {% if item.opportunity_reason %}<div class="opportunity-note"><strong>值得关注：</strong>{{ item.opportunity_reason }}</div>{% endif %}
-  {% if item.entry_point %}<div class="opportunity-note"><strong>可能切入：</strong>{{ item.entry_point }}</div>{% endif %}
-  <div class="opportunity-source"><a href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ '搜索摘要佐证 · 部分字段待核验' if item.research_mode == 'preview' else '原始官方来源' if item.official_source_url else '发现来源 · 官方链接待核实' }} ↗</a></div>
+  {% if item.research_mode == 'preview' %}
+  <p class="opportunity-caution">待核验线索 · 目前仅有搜索摘要，项目时效与参与条件仍须确认。</p>
+  {% elif item.research_mode == 'fallback' %}
+  <p class="opportunity-caution">规则筛选线索 · 项目事实与参与条件仍须核实。</p>
+  {% endif %}
+  <dl class="opportunity-facts">
+    <div class="opportunity-owner"><dt>业主</dt><dd>{{ item.owner or '待核实' }}</dd></div>
+    <div><dt>项目地区</dt><dd>{{ item.province or item.city or '待核实' }}{% if item.province and item.city and item.province != item.city %} · {{ item.city }}{% endif %}</dd></div>
+    <div><dt>预算 / 规模</dt><dd>{{ item.budget or '待核实' }}</dd></div>
+    <div><dt>投标截止</dt><dd>{{ item.deadline or '待核实' }}</dd></div>
+    <div><dt>公告发布</dt><dd>{{ item.published or '待核实' }}</dd></div>
+  </dl>
+  {% if item.technical_scope %}<div class="opportunity-scope"><span>技术范围</span>{% for term in item.technical_scope %}<span class="opportunity-term">{{ term }}</span>{% endfor %}</div>{% endif %}
+  {{ narrative('项目概况', item.summary, 170) }}
+  {{ narrative('跟进判断', item.opportunity_reason, 130) }}
+  {{ narrative('下一步建议', item.entry_point, 130) }}
+  <div class="opportunity-source"><a href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ '查看发现来源 · 原文待核验' if item.research_mode == 'preview' else '查看原始公告' if item.official_source_url else '查看发现来源 · 官方链接待核实' }} ↗</a></div>
   {% if item.evidence %}
   <details class="opportunity-evidence">
-    <summary>{{ '查看搜索摘要证据' if item.research_mode == 'preview' else '查看原文证据' }} · {{ item.evidence | length }} 条</summary>
+    <summary>{{ '搜索摘要证据' if item.research_mode == 'preview' else '原文证据' }} <span>{{ item.evidence | length }} 条 · 展开核对</span></summary>
     {% set names = {'title':'项目', 'owner':'业主', 'province':'省份', 'city':'城市', 'published':'发布日期', 'budget':'预算', 'deadline':'截止时间', 'stage':'阶段'} %}
     {% for proof in item.evidence %}
-    <div class="opportunity-proof"><span>{{ names.get(proof.field, proof.field) }}：</span><q>{{ proof.quote }}</q>{% if proof.page %} · PDF 第{{ proof.page }}页{% endif %}
+    <div class="opportunity-proof"><strong>{{ names.get(proof.field, proof.field) }}</strong><blockquote>{{ proof.quote }}</blockquote>{% if proof.page %}<span>PDF 第{{ proof.page }}页</span>{% endif %}
       <a href="{{ proof.source_url }}" target="_blank" rel="noopener noreferrer">{{ proof.source_title or '证据来源' }} ↗</a>
     </div>
     {% endfor %}

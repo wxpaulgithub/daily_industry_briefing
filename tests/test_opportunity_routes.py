@@ -25,7 +25,8 @@ class OpportunityRoutesTest(unittest.TestCase):
             response = asyncio.run(app.index(scope="opportunity", wechat_kind="all"))
         html = response.body.decode("utf-8")
         self.assertIn("智能仓储每日简讯", html)
-        self.assertIn("OPPORTUNITY LEADS", html)
+        self.assertIn('class="opportunity-facts"', html)
+        self.assertIn("/static/opportunity.css", html)
         self.assertIn("scope=opportunity", html)
 
 

@@ -163,16 +163,22 @@ class SourceVerifier:
         try:
             for _ in range(5):
                 if not normalize_url(url) or (self.check_dns and not await _public_host(url)):
+                    self.failures[normalize_url(url)] = ["source_host_unavailable"]
                     return None
                 async with client.stream("GET", url, follow_redirects=False) as response:
                     if response.is_redirect:
                         url = normalize_url(urljoin(url, response.headers.get("location", "")))
                         continue
                     if response.status_code != 200:
+                        self.failures[normalize_url(url)] = [f"source_http_{response.status_code}"]
+                        return None
+                    if "wappoc_appmsgcaptcha" in urlsplit(url).path:
+                        self.failures[normalize_url(url)] = ["source_access_challenge"]
                         return None
                     content_type = response.headers.get("content-type", "").lower()
                     is_pdf = "application/pdf" in content_type or urlsplit(url).path.lower().endswith(".pdf")
                     if "html" not in content_type and not is_pdf:
+                        self.failures[normalize_url(url)] = ["source_unsupported_content"]
                         return None
                     chunks, size = [], 0
                     async for chunk in response.aiter_bytes():
@@ -184,7 +190,11 @@ class SourceVerifier:
                     raw = b"".join(chunks)
                     if is_pdf:
                         return await self._pdf_document(url, raw)
-                    decoded_response = httpx.Response(200, headers=response.headers, content=raw)
+                    # aiter_bytes already decompresses gzip/br. Keeping Content-Encoding
+                    # would make this second Response decode the same bytes again.
+                    decoded_headers = {key: value for key, value in response.headers.items()
+                                       if key.lower() not in {"content-encoding", "content-length"}}
+                    decoded_response = httpx.Response(200, headers=decoded_headers, content=raw)
                     html = OfficialBiddingSource._decode_html(decoded_response, url)
                 text = trafilatura.extract(html, include_links=False, include_images=False) or ""
                 text = " ".join(text.split())
@@ -196,8 +206,16 @@ class SourceVerifier:
                 flags = ["html_text_truncated"] if len(text) > 16000 else []
                 parser = _Attachments(url)
                 parser.feed(html)
-                return SourceDocument(url, text[:16000], title, attachment_urls=parser.urls[:2], risk_flags=flags) if len(text) >= 60 else None
-        except (httpx.HTTPError, UnicodeError):
+                if len(text) < 60:
+                    self.failures[normalize_url(url)] = ["source_text_unavailable"]
+                    return None
+                from .freshness_guard import html_publication
+                _, publication_quote = html_publication(html)
+                if publication_quote:
+                    text = "[网页发布元数据] " + publication_quote + "\n" + text
+                return SourceDocument(url, text[:16000], title, attachment_urls=parser.urls[:2], risk_flags=flags)
+        except (httpx.HTTPError, UnicodeError) as exc:
+            self.failures[normalize_url(url)] = ["source_" + type(exc).__name__]
             return None
         return None
 
