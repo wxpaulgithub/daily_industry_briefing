@@ -8,6 +8,7 @@ import time
 import httpx
 
 from .facts import deadline_expired
+from .models import is_unverified
 from .project_memory import mark_reported, material_hash, needs_report
 from .runtime import local_now, read_json, write_json
 from .settings import OpportunitySettings
@@ -98,7 +99,7 @@ async def publish_today(settings=None, *, date_str=None, client=None, retry=Fals
             return {"status": "not_configured"}
         items = load_snapshot(date_str, settings.output_dir)
         receipts = status.get("delivered_projects", {})
-        selected = [item for item in items if item.research_mode != "preview" and needs_report(item)
+        selected = [item for item in items if not is_unverified(item) and needs_report(item)
                     and receipts.get(item.project_key) != material_hash(item)
                     and not deadline_expired(item.deadline, local_now())][:settings.digest_limit]
         if not selected:

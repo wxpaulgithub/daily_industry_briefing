@@ -1,5 +1,8 @@
 """OpenAI Responses REST API with strict JSON Schema and bounded web search."""
-from .base import LLMProvider, ProviderCapabilities, ProviderError
+from .base import LLMProvider, ProviderCapabilities, ProviderError, RawProviderResult
+from ..models import SearchSource
+from ..runtime import local_now
+from ..facts import normalize_url
 from ..schemas import strict_schema
 
 
@@ -29,4 +32,18 @@ class OpenAIProvider(LLMProvider):
         parts = [part for item in output if item.get("type") == "message" for part in item.get("content", [])]
         if any(part.get("type") == "refusal" for part in parts):
             raise ProviderError("provider_refusal")
-        return "".join(part.get("text", "") for part in parts if part.get("type") == "output_text")
+        sources = {}
+        for item in output:
+            if item.get("type") != "web_search_call":
+                continue
+            action = item.get("action") or {}
+            rows = list(action.get("sources") or [])
+            if action.get("url"):
+                rows.append({"url": action["url"]})
+            for row in rows:
+                url = normalize_url(row.get("url", "")) if isinstance(row, dict) else ""
+                if url:
+                    sources[url] = SearchSource(url, str(row.get("title") or ""), origin="openai_web_search",
+                                                retrieved_at=local_now().isoformat())
+        return RawProviderResult("".join(part.get("text", "") for part in parts if part.get("type") == "output_text"),
+                                 list(sources.values()), sum(item.get("type") == "web_search_call" for item in output))

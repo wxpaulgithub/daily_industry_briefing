@@ -75,16 +75,49 @@ class UsageTracker:
         self.input_tokens = 0
         self.output_tokens = 0
         self.by_provider = {}
+        self.search_phases = {phase: {"reserved": 0, "calls": 0, "requests": 0, "unknown_requests": 0}
+                              for phase in ("discovery", "verification")}
 
-    def reserve(self, search_budget: int = 0) -> int:
-        if self.calls >= self.settings.max_llm_calls:
+    def remaining(self, phase="discovery") -> int:
+        total = self.settings.total_search_budget
+        if total is None:
+            total = self.settings.max_tool_calls
+        limit = (self.settings.discovery_search_budget if phase == "discovery"
+                 else self.settings.verification_search_budget)
+        return max(0, min(limit - self.search_phases[phase]["reserved"], total - self.reserved_search_calls))
+
+    def reserve(self, search_budget: int = 0, *, phase="discovery", llm=True) -> int:
+        if llm and self.calls >= self.settings.max_llm_calls:
             raise RuntimeError("llm_call_budget_exhausted")
-        if search_budget and self.reserved_search_calls >= self.settings.max_tool_calls:
+        allowance = min(search_budget, self.remaining(phase))
+        if search_budget and not allowance:
             raise RuntimeError("search_call_budget_exhausted")
-        self.calls += 1
-        allowance = min(search_budget, max(self.settings.max_tool_calls - self.reserved_search_calls, 0))
+        if llm:
+            self.calls += 1
         self.reserved_search_calls += allowance
+        if search_budget:
+            self.search_phases[phase]["reserved"] += allowance
+            self.search_phases[phase]["requests"] += 1
         return allowance
+
+    def settle_search(self, phase, reserved, actual=None):
+        if not reserved:
+            return
+        row = self.search_phases[phase]
+        if actual is None:
+            row["unknown_requests"] += 1  # Unknown remote consumption stays charged.
+            return
+        row["calls"] += actual
+        released = max(reserved - actual, 0)
+        row["reserved"] -= released
+        self.reserved_search_calls -= released
+
+    def search_summary(self):
+        return {"discovery_search_calls": self.search_phases["discovery"]["calls"],
+                "verification_search_calls": self.search_phases["verification"]["calls"],
+                "total_search_calls": sum(row["calls"] for row in self.search_phases.values()),
+                "search_budget_charged": self.reserved_search_calls,
+                "search_phases": self.search_phases}
 
     def record(self, provider: str, input_tokens: int, output_tokens: int, search_calls: int = 0):
         self.input_tokens += input_tokens
@@ -100,9 +133,14 @@ class UsageTracker:
         date = local_now().date().isoformat()
         previous = history.get(date, {})
         row = {"date": date, "responses": self.calls, "web_search_calls": self.search_calls,
-               "input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
+               "input_tokens": self.input_tokens, "output_tokens": self.output_tokens, **self.search_summary()}
         for key in ("responses", "web_search_calls", "input_tokens", "output_tokens"):
             row[key] += previous.get(key, 0)
+        for key in ("discovery_search_calls", "verification_search_calls", "total_search_calls", "search_budget_charged"):
+            row[key] += previous.get(key, 0)
+        row["search_phases"] = {phase: {key: value + previous.get("search_phases", {}).get(phase, {}).get(key, 0)
+                                      for key, value in values.items()}
+                                for phase, values in self.search_phases.items()}
         rates = (self.settings.input_cost_per_million, self.settings.output_cost_per_million,
                  self.settings.search_cost_per_thousand)
         providers = previous.get("providers", {})

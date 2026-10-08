@@ -1,7 +1,8 @@
 """Business-facing provider interface. Credentials never enter prompts or logs."""
 import asyncio
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import TypeVar, Generic
+from ..models import SearchSource
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -9,6 +10,20 @@ from pydantic import BaseModel, ValidationError
 from ..schemas import OpportunityResearchResult, SearchQueries
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass
+class RawProviderResult:
+    text: str
+    sources: list[SearchSource]
+    search_calls: int = 0
+
+
+@dataclass
+class ProviderResult(Generic[T]):
+    data: T
+    sources: list[SearchSource]
+    search_calls: int = 0
 
 
 @dataclass(frozen=True)
@@ -32,15 +47,24 @@ class LLMProvider:
         self.usage = usage
         self.client = client
 
-    async def generate(self, schema: type[T], instructions: str, prompt: str, *, web_search: bool = False,
-                       search_budget: int = 3) -> T:
+    async def generate(self, schema: type[T], instructions: str, prompt: str, **kwargs) -> T:
+        return (await self.generate_result(schema, instructions, prompt, **kwargs)).data
+
+    async def generate_result(self, schema: type[T], instructions: str, prompt: str, *, web_search: bool = False,
+                              search_budget: int = 3, search_phase: str = "discovery") -> ProviderResult[T]:
         for attempt in range(2):
+            allowance = 0
+            settled = False
             try:
-                allowance = self.usage.reserve(search_budget if web_search else 0)
+                allowance = self.usage.reserve(search_budget if web_search else 0, phase=search_phase)
                 if web_search and not allowance:
                     raise ProviderError("search_call_budget_exhausted")
-                text = await self._request(schema, instructions, prompt, allowance)
-                return schema.model_validate_json(text)
+                response = await self._request(schema, instructions, prompt, allowance)
+                if isinstance(response, str):
+                    response = RawProviderResult(response, [])
+                self.usage.settle_search(search_phase, allowance, response.search_calls)
+                settled = True
+                return ProviderResult(schema.model_validate_json(response.text), response.sources, response.search_calls)
             except (ValidationError, ValueError):
                 reason = "invalid_structured_output"
                 prompt += "\n上次输出未通过 Schema 校验。请严格匹配所有字段、类型和枚举，未知事实留空。"
@@ -53,6 +77,9 @@ class LLMProvider:
                 reason = "provider_network_error"
             except RuntimeError as exc:
                 raise ProviderError(str(exc)) from None
+            finally:
+                if allowance and not settled:
+                    self.usage.settle_search(search_phase, allowance)
             if attempt == 0:
                 await asyncio.sleep(0.5)
         raise ProviderError(reason)

@@ -10,10 +10,10 @@ from .ai_prompt import RESEARCH_INSTRUCTIONS
 from .company_fit import load_company_profile
 from .facts import compact, deadline_expired, normalize_url
 from .fetcher import build_opportunity, fetch_candidates
-from .models import OpportunityBatch
-from .project_memory import apply_history, load_memory, needs_report
+from .models import OpportunityBatch, is_unverified
+from .project_memory import apply_history, load_memory, needs_report, recent_memory, split_reusable, notice_version
 from .providers.base import ProviderError
-from .rules import HARD_EXCLUDES, EDITORIAL_EXCLUDES, candidate_text, is_too_old, relevance
+from .rules import HARD_EXCLUDES, EDITORIAL_EXCLUDES, candidate_text, is_too_old, relevance, exclusion_terms
 from .runtime import UsageTracker, local_now, read_json, update_status
 from .scoring import score_v2
 from .search import create_search_provider
@@ -28,7 +28,7 @@ def prefilter(candidates, limit=40):
     for candidate in candidates:
         url = normalize_url(candidate.url)
         text = candidate_text(candidate)
-        if not url or any(term in text for term in (*HARD_EXCLUDES, *EDITORIAL_EXCLUDES)):
+        if not url or exclusion_terms(text, (*HARD_EXCLUDES, *EDITORIAL_EXCLUDES)):
             continue
         if candidate.published_ts and time.time() - candidate.published_ts > 365 * 86400:
             continue
@@ -90,6 +90,10 @@ def rank_opportunities(items, profile, limit, config=None):
             continue
         if item.relevance_score < 38:
             continue
+        if is_unverified(item):
+            item.research_mode = "preview"
+            item.verification_status = "preview"
+            item.official_source_url = ""
         if item.research_mode != "ai":
             tier = 3 if item.research_mode == "preview" else source_tier(item.source_url, config or {})
             item.source_tier = tier
@@ -124,9 +128,15 @@ def _feedback(config_dir):
     return rows[-50:] if isinstance(rows, list) else []
 
 
+def can_rule_fallback(candidate):
+    is_search = (candidate.discovery_method == "ai_search" or candidate.snippet_origin
+                 or candidate.source_name.startswith("搜索发现"))
+    return not is_search or bool(candidate.verified_url and candidate.content
+                                 and compact(candidate.title) in compact(candidate.content))
+
+
 def _rules_fallback(candidates, profile, config, limit, output_dir=None):
-    eligible = [candidate for candidate in candidates if candidate.discovery_method != "ai_search"
-                or (candidate.content and compact(candidate.title) in compact(candidate.content))]
+    eligible = [candidate for candidate in candidates if can_rule_fallback(candidate)]
     items = [item for candidate in eligible if (item := build_opportunity(candidate, include_inactive=True))]
     for item in items:
         item.research_mode = "fallback"
@@ -137,11 +147,18 @@ def _rules_fallback(candidates, profile, config, limit, output_dir=None):
 
 
 async def research_candidate(candidate, provider, search, verifier, profile, feedback):
+    from .models import OpportunityCandidate
     sources = [candidate]
     try:
         sources.extend(await search.find_sources(candidate))
     except Exception:
         pass  # Search failure still allows analysis of the original page.
+    metadata = [row for source in sources for row in source.search_sources]
+    for row in metadata:
+        url = normalize_url(row.get("url", ""))
+        if url:
+            sources.append(OpportunityCandidate(row.get("title") or candidate.title, url,
+                summary=row.get("snippet", ""), snippet_origin=row.get("origin", ""), discovery_method="ai_search"))
     # Put official domains first so a search result list full of reposts cannot
     # crowd the original procurement notice out of the small fetch budget.
     sources = sorted(enumerate(sources), key=lambda pair: (
@@ -155,6 +172,7 @@ async def research_candidate(candidate, provider, search, verifier, profile, fee
     fetched = await asyncio.gather(*(verifier.fetch(url) for url in urls))
     fetched_urls = {normalize_url(url) for url, doc in zip(urls, fetched) if doc}
     documents = [doc for doc in fetched if doc]
+    documents.extend(await verifier.fetch_attachments(list(documents)))
     # Search snippets are usable evidence when a site blocks direct retrieval.
     # Keep their provenance explicit; the verifier will label them as previews.
     for source in sources:
@@ -162,25 +180,28 @@ async def research_candidate(candidate, provider, search, verifier, profile, fee
         excerpt = (source.summary or source.content or "").strip()
         if url not in selected_urls or url in fetched_urls or len(excerpt) < 50:
             continue
-        if source.discovery_method != "ai_search" and not (source.source_name or "").startswith("GLM搜索/"):
+        if source.snippet_origin not in {"glm_web_search", "existing_search", "openai_web_search"}:
             continue
         text = f"{source.title}\n{excerpt}"[:3000]
-        documents.append(SourceDocument(url, text, source.title, "search_excerpt"))
+        documents.append(SourceDocument(url, text, source.title, "search_excerpt",
+                                        risk_flags=verifier.failures.get(url, [])))
     if not documents:
         return None
     if candidate.discovery_method == "ai_search":
-        matching = [doc for doc in documents if doc.retrieval_method == "html" and compact(candidate.title) in compact(doc.text)]
+        matching = [doc for doc in documents if doc.retrieval_method in {"html", "pdf"} and compact(candidate.title) in compact(doc.text)]
         if matching:
             matching.sort(key=lambda doc: source_tier(doc.url, verifier.config))
             candidate.content = matching[0].text
             candidate.summary = matching[0].text[:260]
             candidate.verified_url = matching[0].url
+            from .facts import content_signature
+            candidate.content_hash = content_signature(matching[0].text)
             candidate.published = ""
             candidate.published_ts = 0  # Model discovery dates are not verified facts.
     payload = {
         "candidate": asdict(candidate), "company_profile": profile, "recent_feedback": feedback,
         "sources": [{"url": doc.url, "title": doc.title, "retrieval_method": doc.retrieval_method,
-                     "text": doc.text} for doc in documents],
+                     "text": doc.research_text()} for doc in documents],
         "today": local_now().date().isoformat(),
     }
     research = await provider.research(RESEARCH_INSTRUCTIONS, json.dumps(payload, ensure_ascii=False))
@@ -189,7 +210,10 @@ async def research_candidate(candidate, provider, search, verifier, profile, fee
     item = verifier.verify(candidate, research, documents)
     if item:
         item.provider = provider.name
-        score_v2(item, profile, " ".join(doc.text for doc in documents))
+        item.last_researched_at = local_now().timestamp()
+        item.notice_version = notice_version(item.title, item.published, item.source_url)
+        item.source_content_hash = candidate.content_hash if not any(doc.attachment_urls for doc in documents) else ""
+        score_v2(item, profile, " ".join(doc.text for doc in documents if normalize_url(doc.url) in {normalize_url(url) for url in item.source_urls}))
         if item.research_mode == "preview":
             item.final_score = min(item.final_score, 64.0)
             item.priority = "WATCH"
@@ -200,13 +224,14 @@ async def research_opportunities(config, settings, *, candidates=None, provider=
     started = time.monotonic()
     usage = provider.usage if provider else UsageTracker(settings)
     profile = load_company_profile(settings.config_dir)
+    memory = load_memory(settings.output_dir)
     feedback = _feedback(settings.config_dir)
     update_status(settings, "DISCOVERING", last_run=local_now().isoformat(), mode="ai",
                   fallback_reason="", last_count=0, last_ai_candidates=0, last_researched=0,
                   last_verified=0, last_preview=0, last_web_search_calls=0, last_llm_calls=0, cached_fallback=False, error="")
-    if candidates is None:
-        candidates = await fetch_candidates(config)
     try:
+        if candidates is None:
+            candidates = await fetch_candidates(config, usage=usage)
         if not settings.ai_enabled:
             raise ProviderError("ai_disabled")
         if provider is None:
@@ -218,7 +243,9 @@ async def research_opportunities(config, settings, *, candidates=None, provider=
                 provider = create_llm_provider(settings, usage, settings.fallback_provider)
         search = search or create_search_provider(settings, usage, provider, config.get("queries", []))
         prompt = json.dumps({"today": local_now().date().isoformat(), "company_profile": profile,
-                             "recent_feedback": feedback, "known_candidates": [asdict(item) for item in candidates[:20]]}, ensure_ascii=False)
+                             "recent_feedback": feedback,
+                             "recent_projects": recent_memory(memory, local_now().timestamp(), settings.memory_days, settings.memory_limit),
+                             "known_candidates": [asdict(item) for item in candidates[:20]]}, ensure_ascii=False)
         ai_candidates = []
         search_failed = False
         try:
@@ -227,9 +254,14 @@ async def research_opportunities(config, settings, *, candidates=None, provider=
             search_failed = True
         merged = candidates + ai_candidates
         update_status(settings, "PREFILTERING", raw_candidates=len(merged), last_ai_candidates=len(ai_candidates), search_failed=search_failed)
-        filtered = prefilter(merged, settings.candidate_limit)
+        pool = prefilter(merged, max(len(merged), settings.candidate_limit))
+        pending, reused = split_reusable(pool, memory, local_now().timestamp(), settings.memory_recheck_hours)
+        filtered = prefilter(pending, settings.candidate_limit)
+        for item in reused:
+            text = " ".join(source.content for source in pool if source.verified_url == item.source_url)
+            score_v2(item, profile, text, now_ts=local_now().timestamp())
         selected = research_selection(filtered, settings.research_limit)
-        update_status(settings, "RESEARCHING", prefiltered=len(filtered), last_researched=len(selected), provider_used=provider.name)
+        update_status(settings, "RESEARCHING", prefiltered=len(filtered), last_reused=len(reused), last_researched=len(selected), provider_used=provider.name)
         verifier = verifier or SourceVerifier(config)
         semaphore = asyncio.Semaphore(settings.concurrency)
         errors = []
@@ -251,13 +283,12 @@ async def research_opportunities(config, settings, *, candidates=None, provider=
         update_status(settings, "VERIFYING", last_verified=sum(getattr(item, "research_mode", "") == "ai" for item in results),
                       last_preview=sum(getattr(item, "research_mode", "") == "preview" for item in results),
                       failed_research=len(errors))
-        items = []
+        items = list(reused)
         for candidate, result in zip(selected, results):
             if result is False:
                 continue
             if result is None:
-                allowed_fallback = candidate.discovery_method != "ai_search" or (
-                    candidate.content and compact(candidate.title) in compact(candidate.content))
+                allowed_fallback = can_rule_fallback(candidate)
                 fallback = build_opportunity(candidate, include_inactive=True) if allowed_fallback else None
                 if fallback:
                     fallback.research_mode = "fallback"
@@ -269,8 +300,10 @@ async def research_opportunities(config, settings, *, candidates=None, provider=
         has_ai = any(item.research_mode == "ai" for item in items)
         has_preview = any(item.research_mode == "preview" for item in items)
         has_fallback = any(item.research_mode == "fallback" for item in items)
-        mode = "mixed" if has_ai and (has_preview or has_fallback) else "ai" if has_ai else "preview" if has_preview else "fallback"
-        if not ai_succeeded and not items:
+        normal_empty = not selected and not search_failed
+        mode = ("mixed" if (has_fallback and (has_ai or ai_succeeded)) or (has_ai and has_preview)
+                else "preview" if has_preview else "ai" if has_ai or ai_succeeded or normal_empty else "fallback")
+        if not ai_succeeded and not normal_empty and not items:
             # Only wholly unavailable AI falls back to all candidates; explicit
             # semantic rejections remain excluded.
             rejected_urls = {candidate.url for candidate, result in zip(selected, results) if result is False}
@@ -278,7 +311,7 @@ async def research_opportunities(config, settings, *, candidates=None, provider=
         update_status(settings, "RANKING", mode=mode,
                       fallback_reason="source_pages_unavailable" if mode == "preview" else "research_unavailable" if mode == "fallback" else "")
         observations = getattr(items, "observations", items)
-        apply_history(observations, load_memory(settings.output_dir))
+        apply_history(observations, memory)
         ranked = rank_opportunities(observations, profile, settings.display_limit, config)
         rejected_keys = {row.get("project_key") for row in feedback if row.get("decision") in {"reject", "irrelevant"}}
         ranked = [item for item in ranked if item.project_key not in rejected_keys]
@@ -296,4 +329,4 @@ async def research_opportunities(config, settings, *, candidates=None, provider=
     finally:
         usage.save()
         current = read_json(settings.runtime_dir / "opportunity_ai_status.json")
-        update_status(settings, current.get("stage", "RANKING"), last_web_search_calls=usage.search_calls, last_llm_calls=usage.calls)
+        update_status(settings, current.get("stage", "RANKING"), last_web_search_calls=usage.search_calls, last_llm_calls=usage.calls, **usage.search_summary())

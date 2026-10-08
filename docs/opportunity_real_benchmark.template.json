@@ -1,0 +1,6 @@
+{
+  "dataset_type": "real_benchmark",
+  "evaluation_date": "2026-10-08",
+  "notes": "Template only. Empty cases intentionally do not qualify for quality validation. Add real manually verified cases before use.",
+  "cases": []
+}

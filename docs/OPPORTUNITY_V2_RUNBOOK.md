@@ -29,7 +29,11 @@ uvicorn app:app --host 127.0.0.1 --port 8088 --reload
 | `OPPORTUNITY_CANDIDATE_LIMIT` | 40 个初筛候选，为弱关键词项目预留名额 |
 | `OPPORTUNITY_DISPLAY_LIMIT` / `OPPORTUNITY_DIGEST_LIMIT` | 网页10条、企微最多5条，不凑数 |
 | `OPPORTUNITY_TASK_TIMEOUT` | 1200秒 |
-| `OPENAI_OPPORTUNITY_MAX_TOOL_CALLS` | 12，整次任务共享的搜索调用预算 |
+| `OPPORTUNITY_DISCOVERY_SEARCH_BUDGET` | 8，Discovery及扩展搜索预算 |
+| `OPPORTUNITY_VERIFY_SEARCH_BUDGET` | 12，官方源检索预算 |
+| `OPPORTUNITY_TOTAL_SEARCH_BUDGET` | 24，全任务硬上限；未配置时兼容旧MAX_TOOL_CALLS |
+| `OPENAI_OPPORTUNITY_MAX_TOOL_CALLS` | 旧配置兼容；新总预算显式配置优先 |
+| `OPPORTUNITY_MEMORY_RECHECK_HOURS` | 24，内容一致的已核验历史结果可复用的最长间隔 |
 | `OPPORTUNITY_MAX_LLM_CALLS` | 40 次模型尝试，含重试 |
 | `WECOM_OPPORTUNITY_WEBHOOK_URL` | 独立商机机器人，不复用 RSS 告警 Webhook |
 | `SITE_URL` | 完整日报入口的公开站点地址 |
@@ -67,13 +71,21 @@ Invoke-RestMethod -Method Post 'http://127.0.0.1:8088/api/opportunities/research
 Invoke-RestMethod 'http://127.0.0.1:8088/api/opportunities/status' | ConvertTo-Json -Depth 8
 ```
 
-研究立即返回 `started`，轮询至 `fetching=false` 且 `stage=DONE`。没有合格项目时保存空数组，仍算成功。
+研究立即返回 `started`，轮询至 `fetching=false` 且 `stage=DONE`。正常零结果mode=ai、fallback_reason为空，即使当天有缓存仍保存空数组；只有真实故障才考虑规则或缓存回退。
 
 ## 4. 事实、评分和项目记忆
 
-关键事实必须对应已获取网页中的短原文引用。无法核验的业主、地区、发布日期、预算、截止时间留空并记录风险；原文证据不匹配时不使用模型猜测。URL、日期、预算数值、项目键和截止比较由程序计算。截止时间保留时分；只有日期时保留至当天结束。无日期/截止时间的项目最高为“观察”，未来异常日期、过期、已中标、关闭项目不进入销售日报。
+关键事实必须对应已获取HTML/PDF原文中的短引用。HTML可发现最多2个直接PDF附件；PDF最多10MB/80页，独立进程解析15秒超时，单来源总获取30秒上限，不做OCR。证据保存PDF页码；扫描件/过大/截断明确标记风险。仅忽略空白和英文大小写匹配，不能模糊补写。不同项目的来源不能混用。
+
+真实GLM/Existing工具摘要可形成preview；OpenAI模型自行生成的summary不能充当搜索证据。OpenAI实际sources进入验证链，只有URL时继续打开原文。verification_status与运行降级分开保存，旧摘要风险标记也能阻止发布；超时/缓存/重试均不能将摘要提升为fallback可发布项目。
+
+无法核验的业主、地区、发布日期、预算、截止时间留空并记录风险；原文证据不匹配时不使用模型猜测。URL、日期、预算数值、项目键和截止比较由程序计算。截止时间保留时分；只有日期时保留至当天结束。无日期/截止时间的项目最高为“观察”，未来异常日期、过期、已中标、关闭项目不进入销售日报。
 
 评分为：相关性30% + 阶段20% + 新鲜度15% + 来源10% + 公司适配25%。分数用于排序，界面显示“重点关注 / 值得跟进 / 观察”。
+
+Discovery读取最近14天最多50条历史。研究名额分配前，只有当前已读取内容签名完全一致、历史已核验且未超过复核间隔才复用；未知变化、首次无签名、preview恢复原文均研究。带附件或截断原文不跳过。二次招标/澄清公告版本参与变化签名。
+
+前置采集保留官方列表，限定普通检索为一个query的两次请求并纳入Discovery，旧资讯候选从最近三个已保存资讯JSON复用，避免重跑隐藏的嵌套搜索；普通资讯采集逻辑不变。
 
 项目索引保存首次/最后发现、当前及先前阶段/预算/截止、最后推送时间与内容签名。中标/关闭观察也更新索引，较旧采购页面不能重新打开项目。新增/变化项目排在快照前部，页面和企微使用相同顺序；无变化项目留在页面后部，推送时跳过。进入采购期、预算/截止或技术范围变化时可再次提醒。只有企微 `errcode=0` 才更新推送记忆，独立持久化回执防止成功发送后文件更新失败造成重复。
 
@@ -103,7 +115,7 @@ docker compose -p industry_briefing --env-file .env config --quiet
 
 Dockerfile 先启动 Web 服务，由 lifespan 异步执行原有启动资讯采集，图片下载在线程中执行；启动过程可响应健康检查。重启不会额外触发收费 AI 研究。镜像包含配置预检脚本和 live 联调脚本，构建上下文排除 `.env*`、runtime、output 和测试数据。
 
-自动部署工作流先运行离线回归、编译、Compose、镜像构建和容器内配置预检。当前开发分支 push、面向 master 的 PR 以及手动运行都可验证；只有 master 才执行服务器部署，并部署该次已验证的提交。服务器 `.env` 仍位于 `/opt/industry_briefing/.env`。
+自动部署工作流先运行离线回归、编译、Compose、镜像构建和容器内配置预检。当前开发分支 push、面向 master 的 PR 以及手动运行都可验证；校验阶段增加无外网、无生产卷的独立容器健康检查；只有 master 才执行服务器部署，并部署该次已验证的提交。服务器 `.env` 仍位于 `/opt/industry_briefing/.env`。
 
 服务器先构建镜像并预检配置，再替换容器；开启自动推送却缺少独立商机 Webhook 时预检失败。缺少 AI 密钥/模型且自动推送关闭时可采用规则回退。预检只输出配置状态，不打印凭据，也不调用模型或机器人。上线后同时检查 `/api/status`、`/api/opportunities/status`、`/api/opportunities/today`。
 
@@ -123,14 +135,23 @@ git diff --check
 
 `tests/fixtures/opportunity_gold.json` 有96条明确标记的模拟回归场景，验证规则和过滤，不代表线上90%准确率。真实验收需要收集80–100条公告并人工标注，连续2–4周记录漏报、误报、排名、阶段、预算和重复问题。
 
-真实脚本只有传入 `--live` 才调用模型，输出隔离到 `runtime/evaluations/`，不覆盖日常快照，不发企微：
+真实数据入口见 `docs/opportunity_real_benchmark.template.json`（空模板不算真实数据）和 `docs/OPPORTUNITY_REVIEW2_BENCHMARK.md`。首次30–50条人工核验，之后80–100条；数据/金标与工具交付分开验收。
+
+现有脚本支持三个模式：research固定候选和冻结原文、discovery独立联网、longitudinal跨日回放。研究Recall是候选保留率；发现Recall只是标注池覆盖下界。preview、规则回退和核验结果分开，指标含事实完整率及分母。
 
 ```powershell
-.\venv\Scripts\python.exe scripts/test_opportunity_ai_live.py --live --provider openai --limit 3
-.\venv\Scripts\python.exe scripts/test_opportunity_ai_live.py --live --compare --candidates runtime/real_opportunity_cases.json
+# 不调用模型：人工标注后取原文归档，也可提供已冻结documents省略fetch-sources
+.\venv\Scripts\python.exe scripts/test_opportunity_ai_live.py --prepare --fetch-sources --candidates runtime/real_opportunity_cases.json
+# 明确收费：固定原文按evaluation_date比较，不写正式快照、不发企微
+.\venv\Scripts\python.exe scripts/test_opportunity_ai_live.py --live --mode research --compare --candidates runtime/real_opportunity_cases-frozen.json
+# 明确收费：当天独立联网发现，已标注候选作为评测池，使用当前日期
+.\venv\Scripts\python.exe scripts/test_opportunity_ai_live.py --live --mode discovery --compare --candidates runtime/today_labeled_cases.json
+# 无收费：对保存的结果数组计算指标，或回放跨日快照
+.\venv\Scripts\python.exe scripts/test_opportunity_ai_live.py --mode research --candidates runtime/real_opportunity_cases-frozen.json --results runtime/items.json
+.\venv\Scripts\python.exe scripts/test_opportunity_ai_live.py --mode longitudinal --snapshots output/opportunities
 ```
 
-对照模式建议30–50条真实候选，固定候选和来源，让两家模型使用同一原文。JSON 为数组，每行至少 `title`、`url`，可含 `summary`、`published`、`content`。人工标注用 `expected_relevant`（应进入当前销售商机）、`expected_stage`、`expected_budget`、`expected_owner`、`expected_deadline`、`expected_top5`。报告包含精确率、召回率、阶段/事实准确率、官方源比例、Top5重合、耗时和用量；无标注的指标为 null。
+模板字段及原文格式见Benchmark说明。预算按金额单位归一化，URL追踪参数/别名和项目身份匹配。失败/未知消耗保守扣预算，已知成功释放未用预留；GLM请求和OpenAI工具动作计量不等同费用。当前不声称真实质量达标，自动推送维持false；2–4周及至少100条人工裁决并达门槛后另行决定。
 
 ## 8. 排查与反馈
 

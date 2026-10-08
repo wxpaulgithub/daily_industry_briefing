@@ -5,7 +5,7 @@ from dataclasses import replace
 from .fetcher import fetch_opportunities
 from .ai_researcher import rank_opportunities
 from .company_fit import load_company_profile
-from .models import OpportunityBatch
+from .models import OpportunityBatch, is_unverified
 from .project_memory import apply_history, load_memory
 from .publisher import publish_today
 from .runtime import local_now, read_json, update_status
@@ -32,7 +32,7 @@ async def run_opportunity_pipeline(settings=None, *, publish: bool | None = None
                     items = await asyncio.wait_for(fetch_opportunities(settings=replace(settings, ai_enabled=False)), 90)
                 observations = getattr(items, "observations", items)
                 for item in observations:
-                    item.research_mode = "fallback"
+                    item.research_mode = "preview" if is_unverified(item) else "fallback"
                     item.risk_flags = list(dict.fromkeys([*item.risk_flags, "task_timeout"]))
                 apply_history(observations, load_memory(settings.output_dir))
                 ranked = rank_opportunities(observations, load_company_profile(settings.config_dir), settings.display_limit)
@@ -42,7 +42,7 @@ async def run_opportunity_pipeline(settings=None, *, publish: bool | None = None
                 cached = load_snapshot(date_str, settings.output_dir)
                 if cached:
                     for item in cached:
-                        item.research_mode = "fallback"
+                        item.research_mode = "preview" if is_unverified(item) else "fallback"
                         item.risk_flags = list(dict.fromkeys([*item.risk_flags, "cached_snapshot_fallback"]))
                     observed = [*getattr(items, "observations", []), *cached]
                     apply_history(observed, load_memory(settings.output_dir))

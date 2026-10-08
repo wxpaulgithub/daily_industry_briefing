@@ -1,10 +1,25 @@
 {
   "official_sources": [
-    {"label": "中国政府采购网信息公告", "url": "https://www.ccgp.gov.cn/xxgg/"},
-    {"label": "中国政府采购网采购信息", "url": "https://www.ccgp.gov.cn/cggg/zygg/index.htm"},
-    {"label": "中国政府采购网地方采购", "url": "https://www.ccgp.gov.cn/cggg/dfgg/index.htm"},
-    {"label": "全国公共资源交易平台", "url": "https://www.ggzy.gov.cn/deal/dealList.html"},
-    {"label": "中国招标投标公共服务平台", "url": "https://bulletin.cebpubservice.com/"}
+    {
+      "label": "中国政府采购网信息公告",
+      "url": "https://www.ccgp.gov.cn/xxgg/"
+    },
+    {
+      "label": "中国政府采购网采购信息",
+      "url": "https://www.ccgp.gov.cn/cggg/zygg/index.htm"
+    },
+    {
+      "label": "中国政府采购网地方采购",
+      "url": "https://www.ccgp.gov.cn/cggg/dfgg/index.htm"
+    },
+    {
+      "label": "全国公共资源交易平台",
+      "url": "https://www.ggzy.gov.cn/deal/dealList.html"
+    },
+    {
+      "label": "中国招标投标公共服务平台",
+      "url": "https://bulletin.cebpubservice.com/"
+    }
   ],
   "queries": [
     "智能仓储 招标 采购公告",
@@ -13,5 +28,7 @@
     "AGV AMR 仓储 招标",
     "物流自动化 输送分拣 项目",
     "仓储改造 维保 招标"
-  ]
+  ],
+  "trusted_domains": [],
+  "authoritative_domains": []
 }

@@ -5,7 +5,11 @@ from html import unescape
 import ipaddress
 import socket
 import re
-from dataclasses import dataclass
+import json
+import subprocess
+import sys
+from pathlib import Path
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urljoin
 
 import httpx
@@ -24,6 +28,38 @@ class SourceDocument:
     text: str
     title: str = ""
     retrieval_method: str = "html"
+    pages: list[dict] = field(default_factory=list)
+    attachment_urls: list[str] = field(default_factory=list)
+    risk_flags: list[str] = field(default_factory=list)
+    parent_url: str = ""
+
+    def research_text(self):
+        if not self.pages:
+            return self.text[:16000]
+        preferred = sorted(self.pages, key=lambda page: (not any(term in page["text"] for term in
+            ("预算", "截止", "采购人", "技术规格", "堆垛机", "WMS", "澄清")), page["page"]))
+        blocks, remaining = [], 24000
+        for page in preferred:
+            text = page["text"][:min(remaining, 6000)]
+            blocks.append(f"[PDF page {page['page']}] {text}")
+            remaining -= len(text)
+            if remaining <= 0:
+                break
+        return "\n".join(blocks)
+
+
+class _Attachments(HTMLParser):
+    def __init__(self, base):
+        super().__init__(convert_charrefs=True)
+        self.base, self.urls = base, []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "a":
+            return
+        href = dict(attrs).get("href", "")
+        url = normalize_url(urljoin(self.base, href))
+        if url and urlsplit(url).path.lower().endswith(".pdf") and url not in self.urls:
+            self.urls.append(url)
 
 
 class _VisibleText(HTMLParser):
@@ -64,11 +100,14 @@ class _VisibleText(HTMLParser):
 
 
 def source_tier(url: str, config: dict) -> int:
-    host = (urlsplit(url).hostname or "").lower()
-    official = {"ccgp.gov.cn", "ggzy.gov.cn", "cebpubservice.com", *config.get("trusted_domains", [])}
+    host = (urlsplit(url).hostname or "").lower().rstrip(".")
+    def domains(key):
+        return {str(domain).strip().lower().rstrip(".") for domain in config.get(key, [])
+                if re.fullmatch(r"[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", str(domain).strip())}
+    official = {"ccgp.gov.cn", "ggzy.gov.cn", "cebpubservice.com", *domains("trusted_domains")}
     if host.endswith(".gov.cn") or any(host == domain or host.endswith("." + domain) for domain in official):
         return 1
-    if any(host == domain or host.endswith("." + domain) for domain in config.get("authoritative_domains", [])):
+    if any(host == domain or host.endswith("." + domain) for domain in domains("authoritative_domains")):
         return 2
     return 3
 
@@ -89,6 +128,7 @@ class SourceVerifier:
         self.check_dns = check_dns
         self.cache = {}
         self._inflight = {}
+        self.failures = {}
 
     async def fetch(self, url: str) -> SourceDocument | None:
         url = normalize_url(url)
@@ -98,10 +138,14 @@ class SourceVerifier:
             return self.cache[url]
         if url in self._inflight:
             return await self._inflight[url]
-        task = asyncio.create_task(self._fetch(url))
+        task = asyncio.create_task(asyncio.wait_for(self._fetch(url), 30))
         self._inflight[url] = task
         try:
-            result = await task
+            try:
+                result = await task
+            except asyncio.TimeoutError:
+                self.failures[url] = ["source_fetch_timeout"]
+                result = None
             self.cache[url] = result
             if result:
                 self.cache[result.url] = result
@@ -126,15 +170,20 @@ class SourceVerifier:
                         continue
                     if response.status_code != 200:
                         return None
-                    if "html" not in response.headers.get("content-type", "").lower():
+                    content_type = response.headers.get("content-type", "").lower()
+                    is_pdf = "application/pdf" in content_type or urlsplit(url).path.lower().endswith(".pdf")
+                    if "html" not in content_type and not is_pdf:
                         return None
                     chunks, size = [], 0
                     async for chunk in response.aiter_bytes():
                         size += len(chunk)
-                        if size > 2_000_000:
+                        if size > (10_000_000 if is_pdf else 2_000_000):
+                            self.failures[normalize_url(url)] = ["pdf_size_limit" if is_pdf else "html_size_limit"]
                             return None
                         chunks.append(chunk)
                     raw = b"".join(chunks)
+                    if is_pdf:
+                        return await self._pdf_document(url, raw)
                     decoded_response = httpx.Response(200, headers=response.headers, content=raw)
                     html = OfficialBiddingSource._decode_html(decoded_response, url)
                 text = trafilatura.extract(html, include_links=False, include_images=False) or ""
@@ -144,16 +193,58 @@ class SourceVerifier:
                     parser = _VisibleText()
                     parser.feed(html)
                     text, title = parser.result()
-                text = text[:16000]
-                return SourceDocument(url, text, title) if len(text) >= 60 else None
+                flags = ["html_text_truncated"] if len(text) > 16000 else []
+                parser = _Attachments(url)
+                parser.feed(html)
+                return SourceDocument(url, text[:16000], title, attachment_urls=parser.urls[:2], risk_flags=flags) if len(text) >= 60 else None
         except (httpx.HTTPError, UnicodeError):
             return None
         return None
 
+    async def _pdf_document(self, url, raw):
+        def parse():
+            return subprocess.run([sys.executable, "-m", "services.opportunity.pdf_extract"], input=raw,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15,
+                cwd=Path(__file__).resolve().parents[2], check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        try:
+            data = json.loads((await asyncio.to_thread(parse)).stdout)
+        except (subprocess.SubprocessError, ValueError):
+            self.failures[normalize_url(url)] = ["pdf_parse_failed"]
+            return None
+        flags = data["risk_flags"]
+        text = "\n".join(page["text"] for page in data["pages"])
+        if len(text) < 60:
+            self.failures[normalize_url(url)] = flags or ["pdf_text_unavailable"]
+            return None
+        return SourceDocument(url, text, retrieval_method="pdf", pages=data["pages"], risk_flags=flags)
+
+    async def fetch_attachments(self, documents):
+        result = []
+        for parent in documents:
+            for url in parent.attachment_urls[:2]:
+                doc = await self.fetch(url)
+                if doc:
+                    from dataclasses import replace
+                    result.append(replace(doc, parent_url=parent.url))
+                else:
+                    parent.risk_flags.extend(self.failures.get(normalize_url(url), ["attachment_unavailable"]))
+        return result
+
     def verify(self, candidate, research, documents: list[SourceDocument]):
         accepted = []
         document_map = {normalize_url(doc.url): doc for doc in documents}
+        from .project_memory import title_identity
+        candidate_identity = title_identity(candidate.title)
+        result_identity = title_identity(research.title)
+        if (candidate.title != candidate.url and candidate_identity and result_identity
+                and candidate_identity not in result_identity and result_identity not in candidate_identity):
+            return None
+        related = {normalize_url(doc.url) for doc in documents if compact(research.title) in compact(doc.text)}
+        related.update(normalize_url(doc.url) for doc in documents if normalize_url(doc.parent_url) in related)
         for evidence in research.evidence:
+            if normalize_url(evidence.source_url) not in related:
+                continue
             doc = document_map.get(normalize_url(evidence.source_url))
             if not doc or len(compact(evidence.quote)) < 4 or compact(evidence.quote) not in compact(doc.text):
                 continue
@@ -173,7 +264,14 @@ class SourceVerifier:
                     continue
             elif not value or compact(value) not in compact(evidence.quote):
                 continue
-            accepted.append(evidence.model_dump())
+            row = evidence.model_dump()
+            if doc.pages:
+                page = next((page["page"] for page in doc.pages if compact(evidence.quote) in compact(page["text"])), None)
+                if page is None:
+                    continue
+                row["page"] = page
+            row["retrieval_method"] = doc.retrieval_method
+            accepted.append(row)
         def fact(field, expected):
             matching = [row for row in accepted if row["field"] == field and row["value"] == expected]
             matching.sort(key=lambda row: source_tier(row["source_url"], self.config))
@@ -196,7 +294,7 @@ class SourceVerifier:
         tier = 3 if is_preview else source_tier(primary, self.config)
         published = fact("published", research.published)
         published_date = parse_date(published)
-        full_text = " ".join(doc.text for doc in documents)
+        full_text = " ".join(doc.text for doc in documents if normalize_url(doc.url) in related)
         scopes = [scope for scope in research.technical_scope if scope and compact(scope) in compact(full_text)]
         item = ProjectOpportunity(
             title=title, source_url=primary,
@@ -211,7 +309,9 @@ class SourceVerifier:
             source_score={1: 100., 2: 75., 3: 40.}[tier], source_tier=tier,
             opportunity_reason=research.opportunity_reason, entry_point=research.entry_point,
             evidence=accepted, source_urls=linked, research_mode="preview" if is_preview else "ai",
+            verification_status="preview" if is_preview else "verified",
         )
+        item.risk_flags.extend(sorted({flag for doc in documents for flag in doc.risk_flags}))
         if is_preview:
             item.risk_flags.append("search_excerpt_only")
             item.risk_flags.append("original_page_unavailable" if primary_is_excerpt else "search_excerpt_supports_some_fields")

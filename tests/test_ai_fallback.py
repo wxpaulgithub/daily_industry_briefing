@@ -87,6 +87,7 @@ class AIFallbackTests(unittest.TestCase):
         source = candidate()
         source.discovery_method = "ai_search"
         source.summary = source.content
+        source.snippet_origin = "glm_web_search"
         verifier = SourceVerifier({})
         verifier.fetch = AsyncMock(return_value=None)
         provider = SimpleNamespace(name="glm", research=AsyncMock(return_value=research_result()))

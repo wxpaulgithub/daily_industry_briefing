@@ -35,7 +35,9 @@ def build_opportunity(candidate: OpportunityCandidate, *, include_inactive: bool
     source_url = candidate.verified_url or candidate.url
     source_value = source_score(candidate.source_name, source_url)
     urgency_value = urgency_score(stage, candidate.published_ts, deadline)
+    from .project_memory import notice_version
     return ProjectOpportunity(
+        notice_version=notice_version(candidate.title, candidate.published, source_url),
         title=candidate.title,
         source_url=source_url,
         source_name=candidate.source_name,
@@ -80,6 +82,9 @@ async def _enrich_candidates(client: httpx.AsyncClient, candidates: list[Opportu
                 if not document:
                     return False
                 text = document.text
+                from .facts import content_signature
+                candidate.content_hash = content_signature(text) if not document.attachment_urls and not document.risk_flags else ""
+                candidate.verified_url = document.url
                 candidate.content = text[:8000]
                 if not candidate.summary:
                     candidate.summary = text[:260] + ("…" if len(text) > 260 else "")
@@ -93,14 +98,14 @@ async def _enrich_candidates(client: httpx.AsyncClient, candidates: list[Opportu
     return sum(bool(result) for result in results)
 
 
-async def fetch_candidates(config: dict, *, include_existing_skills: bool = True) -> list[OpportunityCandidate]:
+async def fetch_candidates(config: dict, *, include_existing_skills: bool = True, usage=None) -> list[OpportunityCandidate]:
     sources = [
         OfficialBiddingSource(config.get("official_sources") or []),
-        OpportunitySearchSource(config.get("queries") or []),
+        OpportunitySearchSource((config.get("queries") or [])[:1] if usage else config.get("queries") or [], usage),
     ]
     if include_existing_skills:
         from .sources.existing_skills import ExistingSkillsSource
-        sources.append(ExistingSkillsSource())
+        sources.append(ExistingSkillsSource(offline=usage is not None))
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
         batches = await asyncio.gather(*(source.fetch(client) for source in sources), return_exceptions=True)
         candidates = [item for batch in batches if not isinstance(batch, BaseException) for item in batch]

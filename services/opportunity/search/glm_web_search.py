@@ -7,7 +7,9 @@ import httpx
 
 from .base import SearchProvider
 from ..facts import parse_date
-from ..models import OpportunityCandidate
+from ..models import OpportunityCandidate, SearchSource
+from dataclasses import asdict
+from ..runtime import local_now
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,7 @@ class GLMWebSearch(SearchProvider):
         query = f'"{candidate.title}" 官方 招标 采购 公告'
         if candidate.source_name:
             query += f" {candidate.source_name}"
-        return self._dedupe(await self._search(query))[:5]
+        return self._dedupe(await self._search(query, phase="verification"))[:5]
 
     async def _plan_queries(self, instructions: str, prompt: str) -> list[str]:
         # Keep planning on the selected GLM model; searching is a separate API model.
@@ -64,8 +66,8 @@ class GLMWebSearch(SearchProvider):
         )
         return [str(query).strip() for query in result.queries if str(query).strip()]
 
-    async def _search(self, query: str) -> list[OpportunityCandidate]:
-        self.usage.reserve(1)
+    async def _search(self, query: str, *, phase="discovery") -> list[OpportunityCandidate]:
+        allowance = self.usage.reserve(1, phase=phase)
         payload = {
             "model": "web-search-pro",
             "messages": [{"role": "user", "content": query}],
@@ -85,11 +87,17 @@ class GLMWebSearch(SearchProvider):
         except httpx.HTTPStatusError as exc:
             # Never include provider response bodies or request headers in logs.
             logger.warning("[Opportunity/GLMWebSearch] search request rejected (HTTP %s)", exc.response.status_code)
+            self.usage.settle_search(phase, allowance)
             raise
         except httpx.HTTPError as exc:
             logger.warning("[Opportunity/GLMWebSearch] search request failed (%s)", type(exc).__name__)
+            self.usage.settle_search(phase, allowance)
             raise
 
+        except BaseException:
+            self.usage.settle_search(phase, allowance)
+            raise
+        self.usage.settle_search(phase, allowance, 1)
         usage = data.get("usage") or {}
         tool_calls = self._tool_calls(data)
         search_calls = sum(bool(call.get("search_result")) for call in tool_calls)
@@ -128,7 +136,9 @@ class GLMWebSearch(SearchProvider):
                     source_name=f"GLM搜索/{media}",
                     published=published[:32],
                     published_ts=published_date.timestamp() if published_date else 0,
-                    discovery_method="ai_search",
+                    discovery_method="ai_search", snippet_origin="glm_web_search",
+                    search_sources=[asdict(SearchSource(link, clean_title or title, content[:2000],
+                                                       "glm_web_search", local_now().isoformat()))],
                 ))
         return rows
 

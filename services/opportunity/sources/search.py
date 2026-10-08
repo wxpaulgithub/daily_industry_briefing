@@ -15,8 +15,23 @@ logger = logging.getLogger(__name__)
 class OpportunitySearchSource:
     name = "search_discovery"
 
-    def __init__(self, queries: list[str]):
+    def __init__(self, queries: list[str], usage=None, phase="discovery"):
         self.queries = queries
+        self.usage = usage
+        self.phase = phase
+
+    async def _get(self, client, *args, **kwargs):
+        allowance = self.usage.reserve(1, phase=self.phase, llm=False) if self.usage else 0
+        try:
+            response = await client.get(*args, **kwargs)
+        except BaseException:
+            if self.usage:
+                self.usage.settle_search(self.phase, allowance)
+            raise
+        if self.usage:
+            self.usage.settle_search(self.phase, allowance, 1)
+            self.usage.record("existing_search", 0, 0, 1)
+        return response
 
     async def fetch(self, client: httpx.AsyncClient) -> list[OpportunityCandidate]:
         tasks = []
@@ -27,7 +42,7 @@ class OpportunitySearchSource:
 
     async def _fetch_toutiao(self, client: httpx.AsyncClient, query: str) -> list[OpportunityCandidate]:
         try:
-            response = await client.get(
+            response = await self._get(client,
                 "https://www.toutiao.com/api/search/content/",
                 params={"keyword": query, "pd": "information", "source": "input", "dvpf": "pc", "aid": "4916", "page_num": "0", "count": "15"},
                 headers={"Referer": "https://www.toutiao.com/"},
@@ -55,7 +70,7 @@ class OpportunitySearchSource:
     async def _fetch_official_search(self, client: httpx.AsyncClient, query: str) -> list[OpportunityCandidate]:
         search_query = f"{query} (site:ccgp.gov.cn OR site:ggzy.gov.cn OR site:cebpubservice.com)"
         try:
-            response = await client.get(
+            response = await self._get(client,
                 f"https://www.bing.com/search?q={quote_plus(search_query)}",
                 headers={"Referer": "https://www.bing.com/", "Accept-Language": "zh-CN,zh;q=0.9"},
             )
@@ -66,7 +81,7 @@ class OpportunitySearchSource:
                     continue
                 url = unescape(match.group(1)).strip()
                 host = urlparse(url).netloc.lower()
-                if not any(domain in host for domain in ("ccgp.gov.cn", "ggzy.gov.cn", "cebpubservice.com")):
+                if not any(host == domain or host.endswith("." + domain) for domain in ("ccgp.gov.cn", "ggzy.gov.cn", "cebpubservice.com")):
                     continue
                 title = re.sub(r"<[^>]+>", "", unescape(match.group(2)))
                 title = re.sub(r"\s+", " ", title).strip()
@@ -75,7 +90,7 @@ class OpportunitySearchSource:
                 if title:
                     rows.append(OpportunityCandidate(
                         title=title, url=url, summary=" ".join(snippet.split()),
-                        source_name="搜索发现/官方公告",
+                        source_name="搜索发现/官方公告", snippet_origin="existing_search",
                     ))
             return rows[:10]
         except Exception as exc:

@@ -7,9 +7,10 @@ from ..ai_prompt import DISCOVERY_INSTRUCTIONS
 
 
 class ExistingSearchProvider(SearchProvider):
-    def __init__(self, provider, queries):
+    def __init__(self, provider, queries, usage=None):
         self.provider = provider
         self.queries = queries
+        self.usage = usage
 
     async def discover(self, prompt):
         queries = list(self.queries)
@@ -23,8 +24,8 @@ class ExistingSearchProvider(SearchProvider):
         return await self._fetch(list(dict.fromkeys(queries))[:10])
 
     async def find_sources(self, candidate):
-        return await self._fetch([candidate.title + " 官方 招标 采购"])
+        return await self._fetch([candidate.title + " 官方 招标 采购"], phase="verification")
 
-    async def _fetch(self, queries):
+    async def _fetch(self, queries, phase="discovery"):
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
-            return await OpportunitySearchSource(queries).fetch(client)
+            return await OpportunitySearchSource(queries, self.usage, phase).fetch(client)

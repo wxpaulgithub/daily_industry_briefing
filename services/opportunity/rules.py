@@ -1,5 +1,6 @@
 """Deterministic opportunity classification and relevance rules."""
 import time
+import re
 
 from .models import OpportunityCandidate
 
@@ -26,6 +27,12 @@ EDITORIAL_EXCLUDES = (
 )
 
 
+def exclusion_terms(text, terms):
+    return [term for term in terms if any(
+        not re.search(r"(?:不含|不包含|不涉及|无需|排除|不提供|非)\s*$", text[max(0, match.start()-12):match.start()])
+        for match in re.finditer(re.escape(term), text))]
+
+
 def candidate_text(candidate: OpportunityCandidate) -> str:
     return f"{candidate.title} {candidate.summary} {candidate.content}".strip()
 
@@ -33,8 +40,8 @@ def candidate_text(candidate: OpportunityCandidate) -> str:
 def relevance(candidate: OpportunityCandidate) -> tuple[float, list[str], list[str]]:
     text = candidate_text(candidate)
     upper = text.upper()
-    risks = [f"excluded:{term}" for term in HARD_EXCLUDES if term in text]
-    risks.extend(f"editorial:{term}" for term in EDITORIAL_EXCLUDES if term in text)
+    risks = [f"excluded:{term}" for term in exclusion_terms(text, HARD_EXCLUDES)]
+    risks.extend(f"editorial:{term}" for term in exclusion_terms(text, EDITORIAL_EXCLUDES))
     if risks:
         return 0.0, [], risks
     matched: list[str] = []

@@ -23,7 +23,7 @@
     <summary>{{ '查看搜索摘要证据' if item.research_mode == 'preview' else '查看原文证据' }} · {{ item.evidence | length }} 条</summary>
     {% set names = {'title':'项目', 'owner':'业主', 'province':'省份', 'city':'城市', 'published':'发布日期', 'budget':'预算', 'deadline':'截止时间', 'stage':'阶段'} %}
     {% for proof in item.evidence %}
-    <div class="opportunity-proof"><span>{{ names.get(proof.field, proof.field) }}：</span><q>{{ proof.quote }}</q>
+    <div class="opportunity-proof"><span>{{ names.get(proof.field, proof.field) }}：</span><q>{{ proof.quote }}</q>{% if proof.page %} · PDF 第{{ proof.page }}页{% endif %}
       <a href="{{ proof.source_url }}" target="_blank" rel="noopener noreferrer">{{ proof.source_title or '证据来源' }} ↗</a>
     </div>
     {% endfor %}

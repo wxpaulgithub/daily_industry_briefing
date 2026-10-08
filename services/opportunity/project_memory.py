@@ -4,7 +4,8 @@ import json
 import re
 import time
 
-from .facts import normalize_url
+from .facts import normalize_url, content_signature
+from .models import ProjectOpportunity, is_unverified
 from .runtime import read_json, write_json
 
 
@@ -16,7 +17,43 @@ def title_identity(title: str) -> str:
 def material_hash(item) -> str:
     values = {key: getattr(item, key) for key in ("stage", "budget", "deadline")}
     values["technical_scope"] = sorted(set(item.technical_scope))
+    if item.notice_version:
+        values["notice_version"] = item.notice_version
     return hashlib.sha256(json.dumps(values, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def notice_version(title, published, url):
+    if not re.search(r"二次|重新招标|澄清|变更|重新启动|重启", title):
+        return ""
+    return content_signature(f"{title}|{published}|{normalize_url(url)}")[:24]
+
+
+def recent_memory(memory, now_ts, days=14, limit=50):
+    keys = ("project_key", "title", "owner", "stage", "budget", "deadline", "technical_scope",
+            "source_url", "source_content_hash", "notice_version", "last_researched_at", "verification_status", "last_seen_at")
+    rows = sorted(memory.values(), key=lambda row: row.get("last_seen_at", 0), reverse=True)
+    return [{key: row.get(key, "") for key in keys} for row in rows
+            if row.get("last_seen_at", 0) >= now_ts - days * 86400][:limit]
+
+
+def split_reusable(candidates, memory, now_ts, recheck_hours=24):
+    pending, reused = [], []
+    for candidate in candidates:
+        probe = ProjectOpportunity(candidate.title, candidate.url)
+        old = find_previous(probe, memory)
+        reusable = (old and candidate.content_hash and candidate.verified_url
+                    and old.get("source_content_hash") == candidate.content_hash
+                    and old.get("research_mode") == "ai"
+                    and old.get("verification_status") == "verified"
+                    and 0 <= now_ts - old.get("last_researched_at", 0) < recheck_hours * 3600
+                    and notice_version(candidate.title, candidate.published, candidate.url) == old.get("notice_version", ""))
+        if reusable:
+            item = ProjectOpportunity.from_dict(old)
+            if not is_unverified(item):
+                reused.append(item)
+                continue
+        pending.append(candidate)
+    return pending, reused
 
 
 def load_memory(base_dir):
@@ -51,6 +88,9 @@ def apply_history(items, memory, now_ts: float | None = None):
             item.previous_stage = old.get("stage", "")
             item.previous_budget = old.get("budget", "")
             item.previous_deadline = old.get("deadline", "")
+            if item.published_ts and old.get("published_ts", 0) > item.published_ts:
+                for field in ("stage", "budget", "deadline", "technical_scope", "notice_version", "source_content_hash"):
+                    setattr(item, field, old.get(field, getattr(item, field)))
             if old.get("stage") in {"AWARD", "CLOSED"} and old.get("published_ts", 0) >= item.published_ts:
                 # A stale procurement page cannot reopen a later closed/awarded project.
                 item.stage = old["stage"]

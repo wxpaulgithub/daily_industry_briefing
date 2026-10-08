@@ -39,6 +39,12 @@ class OpportunitySettings:
     task_timeout: int = 1200
     request_timeout: int = 180
     max_tool_calls: int = 12
+    discovery_search_budget: int = 8
+    verification_search_budget: int = 12
+    total_search_budget: int | None = None
+    memory_days: int = 14
+    memory_limit: int = 50
+    memory_recheck_hours: int = 24
     max_llm_calls: int = 40
     max_output_tokens: int = 8000
     publish_attempts: int = 3
@@ -82,6 +88,11 @@ class OpportunitySettings:
             task_timeout=env_int("OPPORTUNITY_TASK_TIMEOUT", 1200, maximum=1800),
             request_timeout=env_int("OPPORTUNITY_AI_REQUEST_TIMEOUT", 180, maximum=600),
             max_tool_calls=env_int("OPENAI_OPPORTUNITY_MAX_TOOL_CALLS", 12, minimum=0, maximum=40),
+            discovery_search_budget=env_int("OPPORTUNITY_DISCOVERY_SEARCH_BUDGET", 8, minimum=0, maximum=100),
+            verification_search_budget=env_int("OPPORTUNITY_VERIFY_SEARCH_BUDGET", 12, minimum=0, maximum=100),
+            total_search_budget=env_int("OPPORTUNITY_TOTAL_SEARCH_BUDGET",
+                int(os.getenv("OPENAI_OPPORTUNITY_MAX_TOOL_CALLS") or 24), minimum=0, maximum=200),
+            memory_recheck_hours=env_int("OPPORTUNITY_MEMORY_RECHECK_HOURS", 24, maximum=168),
             max_llm_calls=env_int("OPPORTUNITY_MAX_LLM_CALLS", 40, maximum=100),
             max_output_tokens=env_int("OPENAI_OPPORTUNITY_MAX_OUTPUT_TOKENS", 8000, maximum=16000),
             publish_attempts=env_int("OPPORTUNITY_PUBLISH_ATTEMPTS", 3, maximum=3),

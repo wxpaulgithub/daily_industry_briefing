@@ -5,7 +5,23 @@ from ..models import OpportunityCandidate
 
 
 class ExistingSkillsSource:
+    def __init__(self, offline=False):
+        self.offline = offline
+
     async def fetch(self, client):
+        if self.offline:
+            # Reuse saved news instead of launching unmetered nested search skills.
+            from config import OUTPUT_DIR
+            from ..runtime import read_json
+            rows = []
+            for path in sorted(OUTPUT_DIR.glob("????-??-??.json"), reverse=True)[:3]:
+                data = read_json(path, [])
+                if isinstance(data, list):
+                    rows.extend(data)
+            allowed = OpportunityCandidate.__dataclass_fields__
+            return [OpportunityCandidate(**{key: value for key, value in row.items() if key in allowed})
+                    for row in rows if isinstance(row, dict) and row.get("title") and row.get("url")]
+
         from services.skills.bidding import BiddingSkill
         from services.skills.local_projects import LocalProjectSkill
         from services.skills.toutiao import ToutiaoSkill

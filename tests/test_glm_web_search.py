@@ -10,9 +10,12 @@ class FakeUsage:
         self.reserved = []
         self.recorded = []
 
-    def reserve(self, amount):
+    def reserve(self, amount, **kwargs):
         self.reserved.append(amount)
         return amount
+
+    def settle_search(self, *values):
+        pass
 
     def record(self, *values):
         self.recorded.append(values)

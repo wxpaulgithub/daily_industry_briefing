@@ -19,6 +19,15 @@ def make_project_key(title: str, owner: str = "", city: str = "") -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
 
 
+@dataclass(frozen=True)
+class SearchSource:
+    url: str
+    title: str = ""
+    snippet: str = ""
+    origin: str = ""
+    retrieved_at: str = ""
+
+
 @dataclass
 class OpportunityCandidate:
     title: str
@@ -30,6 +39,9 @@ class OpportunityCandidate:
     content: str = ""
     discovery_method: str = "existing"
     verified_url: str = ""
+    snippet_origin: str = ""
+    search_sources: list[dict] = field(default_factory=list)
+    content_hash: str = ""
 
 
 @dataclass
@@ -67,6 +79,10 @@ class ProjectOpportunity:
     source_tier: int = 3
     research_mode: str = "rules"
     provider: str = ""
+    verification_status: str = ""
+    source_content_hash: str = ""
+    notice_version: str = ""
+    last_researched_at: float = 0.0
     is_new: bool = False
     is_updated: bool = False
     first_seen_at: float = field(default_factory=time.time)
@@ -94,6 +110,14 @@ class ProjectOpportunity:
     def from_dict(cls, data: dict) -> "ProjectOpportunity":
         allowed = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in data.items() if k in allowed})
+
+
+def is_unverified(item) -> bool:
+    """Legacy snapshots retain conservative excerpt provenance across failures."""
+    return (item.verification_status in {"preview", "unverified"}
+            or item.research_mode == "preview"
+            or any(flag in item.risk_flags for flag in (
+                "search_excerpt_only", "search_excerpt_supports_some_fields", "original_page_unavailable")))
 
 
 class OpportunityBatch(list):

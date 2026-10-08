@@ -41,6 +41,18 @@ jobs:
           docker compose -p industry_briefing --env-file .env.example config --quiet
           docker build -t industry-briefing:ci .
           docker run --rm --entrypoint python industry-briefing:ci scripts/check_opportunity_config.py
+      - name: 隔离服务健康检查（无外网、无生产数据）
+        run: |
+          set -euo pipefail
+          CID=$(docker run -d --network none -e FETCH_NEWS_ON_STARTUP=false -e OPPORTUNITY_ENABLED=false -e OPPORTUNITY_AUTO_PUBLISH=false industry-briefing:ci)
+          trap 'docker rm -f "$CID" >/dev/null' EXIT
+          for attempt in $(seq 1 20); do
+            if docker exec "$CID" python -c "import urllib.request; [urllib.request.urlopen('http://127.0.0.1:8088'+p, timeout=3).close() for p in ('/api/status','/api/opportunities/status','/api/opportunities/today')]"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
 
   deploy:
     needs: validate

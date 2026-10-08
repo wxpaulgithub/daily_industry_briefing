@@ -1,5 +1,6 @@
 """Deterministic date, amount and URL handling for AI supplied facts."""
 import ipaddress
+import hashlib
 import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -59,6 +60,10 @@ def budget_amount(value: str) -> float | None:
         return number * {"亿元": 1e8, "万元": 1e4, "万": 1e4, "元": 1}[match.group(2)]
     except ValueError:
         return None
+
+
+def content_signature(value: str) -> str:
+    return hashlib.sha256(compact(value).encode("utf-8")).hexdigest() if value else ""
 
 
 def compact(value: str) -> str:
