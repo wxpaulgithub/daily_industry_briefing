@@ -37,20 +37,20 @@ class OpportunityResearchResult(StrictModel):
     title: str
     is_real_project: bool
     warehouse_relevance: float = Field(ge=0, le=100)
-    owner: str
-    province: str
-    city: str
-    published: str
-    budget_text: str
-    deadline: str
+    owner: str = ""
+    province: str = ""
+    city: str = ""
+    published: str = ""
+    budget_text: str = ""
+    deadline: str = ""
     stage: Literal["EARLY_SIGNAL", "PROCUREMENT", "AWARD", "CLOSED", "UNKNOWN"]
     project_type: Literal["NEW_BUILD", "RETROFIT", "MAINTENANCE", "SOFTWARE", "EQUIPMENT", "MIXED", "UNKNOWN"]
-    technical_scope: list[str]
-    summary: str
-    opportunity_reason: str
-    entry_point: str
-    source_urls: list[str]
-    evidence: list[EvidenceItem]
+    technical_scope: list[str] = Field(default_factory=list)
+    summary: str = ""
+    opportunity_reason: str = ""
+    entry_point: str = ""
+    source_urls: list[str] = Field(default_factory=list)
+    evidence: list[EvidenceItem] = Field(default_factory=list)
 
 
 def strict_schema(model: type[BaseModel]) -> dict:

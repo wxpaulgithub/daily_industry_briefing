@@ -1,15 +1,56 @@
 """Business-facing provider interface. Credentials never enter prompts or logs."""
 import asyncio
+import logging
 from dataclasses import dataclass
-from typing import TypeVar, Generic
+from typing import TypeVar, Generic, get_args
 from ..models import SearchSource
 
 import httpx
 from pydantic import BaseModel, ValidationError
+from pydantic_core import ErrorType
 
 from ..schemas import OpportunityResearchResult, SearchQueries
 
 T = TypeVar("T", bound=BaseModel)
+logger = logging.getLogger(__name__)
+_VALIDATION_ERROR_TYPES = frozenset(get_args(ErrorType))
+_SAFE_PROVIDER_VALUE_ERRORS = frozenset({"empty_response", "incomplete_response"})
+
+
+def _validation_diagnostics(schema: type[BaseModel], exc: ValidationError) -> list[dict[str, str]]:
+    """Only schema-owned field names and built-in error codes may leave validation."""
+    definition = schema.model_json_schema()
+    diagnostics = []
+    for error in exc.errors(include_url=False, include_context=False, include_input=False)[:20]:
+        node = definition
+        path = []
+        for part in error["loc"]:
+            if "$ref" in node:
+                node = definition.get("$defs", {}).get(node["$ref"].rsplit("/", 1)[-1], {})
+            if isinstance(part, str) and part in node.get("properties", {}):
+                path.append(part)
+                node = node["properties"][part]
+            elif isinstance(part, int) and node.get("type") == "array":
+                path.append(str(part))
+                node = node.get("items", {})
+            else:
+                # extra_forbidden locations can themselves contain response secrets.
+                path.append("[unknown_field]")
+                break
+        code = error["type"]
+        diagnostics.append({"path": ".".join(path) or "$",
+                            "type": code if code in _VALIDATION_ERROR_TYPES else "value_error"})
+    return diagnostics
+
+
+def _retry_feedback(schema: type[BaseModel], errors: list[dict[str, str]]) -> str:
+    details = "\n".join(f"{index}. {error['path']}: {error['type']}" for index, error in enumerate(errors, 1))
+    evidence_rule = ("没有证据时使用 evidence=[]，提供的每条 Evidence 必须完整。"
+                     if issubclass(schema, OpportunityResearchResult) else "")
+    return ("\n上次返回的 JSON 有以下结构错误（字段路径: 错误类型）：\n" + details
+            + "\n请只修正 JSON 结构和字段类型，不要增加任何来源材料中不存在的新事实。"
+              "未知事实继续使用空字符串、空数组或 UNKNOWN；必填字段仍须明确返回。"
+            + evidence_rule + "返回完整 JSON，不要解释。")
 
 
 @dataclass
@@ -52,6 +93,7 @@ class LLMProvider:
 
     async def generate_result(self, schema: type[T], instructions: str, prompt: str, *, web_search: bool = False,
                               search_budget: int = 3, search_phase: str = "discovery") -> ProviderResult[T]:
+        structured_failure = False
         for attempt in range(2):
             allowance = 0
             settled = False
@@ -64,10 +106,30 @@ class LLMProvider:
                     response = RawProviderResult(response, [])
                 self.usage.settle_search(search_phase, allowance, response.search_calls)
                 settled = True
-                return ProviderResult(schema.model_validate_json(response.text), response.sources, response.search_calls)
-            except (ValidationError, ValueError):
+                data = schema.model_validate_json(response.text)
+                if structured_failure:
+                    logger.info("[OpportunityAI] structured output recovered provider=%s schema=%s attempt=%d",
+                                self.name, schema.__name__, attempt + 1)
+                return ProviderResult(data, response.sources, response.search_calls)
+            except ValidationError as exc:
                 reason = "invalid_structured_output"
-                prompt += "\n上次输出未通过 Schema 校验。请严格匹配所有字段、类型和枚举，未知事实留空。"
+                structured_failure = True
+                errors = _validation_diagnostics(schema, exc)
+                logger.warning("[OpportunityAI] invalid structured output provider=%s schema=%s attempt=%d errors=%s",
+                               self.name, schema.__name__, attempt + 1, errors)
+                if attempt == 0:
+                    prompt += _retry_feedback(schema, errors)
+            except ValueError as exc:
+                # Only fixed provider codes leave this block; arbitrary exception
+                # messages can contain model content or other sensitive values.
+                reason = "invalid_structured_output"
+                structured_failure = True
+                error_type = exc.args[0] if exc.args and exc.args[0] in _SAFE_PROVIDER_VALUE_ERRORS else "value_error"
+                errors = [{"path": "$", "type": error_type}]
+                logger.warning("[OpportunityAI] invalid provider output provider=%s schema=%s attempt=%d errors=%s",
+                               self.name, schema.__name__, attempt + 1, errors)
+                if attempt == 0:
+                    prompt += _retry_feedback(schema, errors)
             except httpx.HTTPStatusError as exc:
                 code = exc.response.status_code
                 reason = f"provider_http_{code}"

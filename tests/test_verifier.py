@@ -4,12 +4,32 @@ import unittest
 import httpx
 
 from services.opportunity.facts import normalize_url
-from services.opportunity.schemas import EvidenceItem
+from services.opportunity.schemas import EvidenceItem, OpportunityResearchResult
 from services.opportunity.verifier import SourceDocument, SourceVerifier, source_tier
 from v2_helpers import URL, candidate, documents, research_result
 
 
 class VerifierTests(unittest.TestCase):
+    def test_valid_schema_without_evidence_does_not_verify_budget_or_project(self):
+        research = OpportunityResearchResult.model_validate_json(
+            '{"title":"样本制造企业自动化立体库改造采购公告","is_real_project":true,'
+            '"warehouse_relevance":90,"stage":"PROCUREMENT","project_type":"RETROFIT",'
+            '"budget_text":"380万元","evidence":[]}')
+        self.assertEqual(research.budget_text, "380万元")
+        self.assertIsNone(SourceVerifier({}).verify(candidate(), research, documents()))
+
+    def test_title_evidence_does_not_verify_other_unsupported_facts(self):
+        original = research_result()
+        research = OpportunityResearchResult.model_validate_json(original.model_dump_json())
+        research.evidence = [row for row in research.evidence if row.field == "title"]
+        item = SourceVerifier({}).verify(candidate(), research, documents())
+        self.assertIsNotNone(item)
+        for field in ("owner", "province", "city", "published", "budget", "deadline"):
+            self.assertEqual(getattr(item, field), "")
+        self.assertEqual(item.stage, "UNKNOWN")
+        self.assertIn("unsupported_budget", item.risk_flags)
+        self.assertIn("stage_not_verified", item.risk_flags)
+
     def test_missing_or_invented_quote_does_not_create_budget(self):
         research = research_result(budget_text="999万元", summary="预算999万元，截止2026-02-31。")
         research.evidence = [row for row in research.evidence if row.field != "budget"] + [EvidenceItem(field="budget", value="999万元", source_title="公告", source_url=URL, quote="预算金额：999万元")]
