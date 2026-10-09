@@ -11,11 +11,11 @@ class ExpoAssocSkill(RSSKeywordSkill):
 
     feed_sources = [
         # -- 展会预告与报道 --
-        {"label": "传动网-展会预告", "url": "https://www.chuandong.com/exhibition/list0.html"},
-        {"label": "传动网-展会报道", "url": "https://www.chuandong.com/news/list5.html"},
+        {"label": "传动网-展会预告", "publisher": "传动网", "kind": "association", "url": "https://www.chuandong.com/exhibition/list0.html"},
+        {"label": "传动网-展会报道", "publisher": "传动网", "kind": "association", "url": "https://www.chuandong.com/news/list5.html"},
         # -- 行业协会动态 --
-        {"label": "中国物流与采购联合会", "url": "http://www.chinawuliu.com.cn/zixun/"},
-        {"label": "中国机械工业联合会", "url": "http://www.cmif.org.cn/"},
+        {"label": "中国物流与采购联合会", "publisher": "中国物流与采购联合会", "kind": "association", "url": "http://www.chinawuliu.com.cn/zixun/"},
+        {"label": "中国机械工业联合会", "publisher": "中国机械工业联合会", "kind": "association", "url": "http://www.cmif.org.cn/"},
     ]
 
     include_keywords = [
@@ -71,13 +71,8 @@ class ExpoAssocSkill(RSSKeywordSkill):
         "汽车展",
         # 建筑/地产/轻工
         "纺织",
-        "烟草",
-        "建材",
         "房地产",
         "家装",
         # 过往年份（排除过旧的展会）
-        "2021",
-        "2022",
-        "2023",
     ]
 

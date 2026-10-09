@@ -41,6 +41,9 @@ def render_html(
     date_display: str | None = None,
 ) -> str:
     """渲染 HTML 文本（不落盘）"""
+    if scope == "national":
+        from services.national_news import quality_score
+        articles = sorted(articles, key=quality_score, reverse=True)
     date_display = date_display or _get_date_str()[0]
     template_name = "wechat.html" if output_type == "wechat" else "magazine.html"
     template = _jinja_env.get_template(template_name)
@@ -196,6 +199,12 @@ def save_articles_json(articles: list) -> Path:
             "fetched_at": getattr(a, "fetched_at", 0.0),
             "content_quality": a.content_quality,
             "skill_name": a.skill_name,
+            "source_domain": getattr(a, "source_domain", ""),
+            "source_group": getattr(a, "source_group", ""),
+            "source_kind": getattr(a, "source_kind", ""),
+            "collection_url": getattr(a, "collection_url", ""),
+            "news_category": getattr(a, "news_category", ""),
+            "relevance_score": getattr(a, "relevance_score", 0.0),
             "region_scope": getattr(a, "region_scope", "national"),
             "demand_signal_score": getattr(a, "demand_signal_score", 0.0),
             "is_potential_warehouse_demand": getattr(a, "is_potential_warehouse_demand", False),

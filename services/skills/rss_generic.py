@@ -1,233 +1,229 @@
-"""
-通用 RSS 关键词过滤 Skill 基类
-"""
-import calendar
+"""RSS/HTML feeds with publisher attribution, bounded enrichment and source diagnostics."""
 import asyncio
+import calendar
 import logging
 import re
-from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import feedparser
 import httpx
+from lxml import html as lhtml
+from lxml.etree import ParserError
 
 from services.fetcher import Article, NewsSkill, clean_title, normalize_summary
+from services.news_metadata import clean_text, parse_date, unique_date, DATE, REVERSE_DATE, primary_metadata, read_public_text, SourceReadError
+from services.national_news import source_domain, assess, quality_score
 
 logger = logging.getLogger(__name__)
 
 
 class RSSKeywordSkill(NewsSkill):
-    """基于 RSS/Atom 的通用技能基类"""
-
-    skill_name: str = "RSS通用"
-    source_name_fallback: str = "RSS"
-    feed_sources: list[dict[str, str]] = []
-    include_keywords: list[str] = []
-    exclude_keywords: list[str] = []
-    max_per_feed: int = 10
+    skill_name = "RSS通用"
+    source_name_fallback = "RSS"
+    feed_sources = []
+    include_keywords = []
+    exclude_keywords = []
+    max_per_feed = 10
+    detail_limit = 4
+    response_limit = 2 * 1024 * 1024
+    check_dns = True
 
     @property
-    def name(self) -> str:
+    def name(self):
         return self.skill_name
 
     @property
-    def region_scope(self) -> str:
+    def region_scope(self):
         return "national"
 
     @property
-    def search_queries(self) -> list[dict]:
-        # 复用框架中的 search_queries 结构：keyword 字段存放 feed URL
-        return [
-            {"keyword": item["url"], "label": item["label"]}
-            for item in self.feed_sources
-            if item.get("url")
-        ]
+    def search_queries(self):
+        return [{"keyword": item["url"], "label": item["label"]} for item in self.feed_sources if item.get("url")]
 
-    async def fetch(self, client: httpx.AsyncClient, keyword: str, count: int = 10) -> list[Article]:
-        """抓取单个 RSS 源并做关键词过滤"""
-        feed_url = keyword.strip()
-        if not feed_url:
-            return []
+    async def _get_text(self, client, url, timeout=10):
+        return await read_public_text(client, url, timeout=timeout, size_limit=self.response_limit, check_dns=self.check_dns)
 
-        last_error = None
-        for attempt in range(1, 4):
-            try:
-                resp = await client.get(
-                    feed_url,
-                    headers={
-                        "Accept": "application/rss+xml, application/xml, text/xml, text/html",
-                        "Referer": feed_url,
-                    },
-                    timeout=30.0,
-                )
-                text = resp.text
-
-                # 1) 优先按 RSS/Atom 解析
-                feed = feedparser.parse(text)
-                entries = feed.entries or []
-                if entries:
-                    return self._entries_to_articles(entries, min(count, self.max_per_feed), feed_url, feed)
-
-                # 2) 兜底：按普通 HTML 列表页解析
-                html_entries = self._parse_html_as_entries(feed_url, text)
-                if html_entries:
-                    pseudo_feed = {"feed": {"title": self.source_name_fallback}}
-                    return self._entries_to_articles(
-                        html_entries,
-                        min(count, self.max_per_feed),
-                        feed_url,
-                        pseudo_feed,
-                    )
-                last_error = ValueError("empty_feed_and_empty_html_entries")
-            except Exception as e:
-                last_error = e
-            # 指数退避，避免瞬时网络抖动导致整源失败
-            await asyncio.sleep(min(2 ** attempt, 8))
-
-        logger.warning(f"[{self.name}] RSS 抓取失败 [{feed_url}]: {last_error!r}")
+    async def fetch(self, client, keyword, count=10):
+        source = next((s for s in self.feed_sources if s["url"] == keyword), {"url": keyword, "label": self.source_name_fallback})
+        report = {"url": keyword, "publisher": source.get("publisher", source["label"]), "status": "fetching", "parsed": 0, "returned": 0, "enriched": 0, "detail_failures": {}}
+        if not hasattr(self, "source_diagnostics"):
+            self.source_diagnostics = []
+        self.source_diagnostics.append(report)
+        try:
+            text, final_url = await self._get_text(client, keyword)
+            feed = feedparser.parse(text)
+            entries = feed.entries or []
+            if not entries:
+                entries = self._parse_html_as_entries(final_url, text, source.get("article_pattern", ""))
+            report["parsed"] = len(entries)
+            if not entries:
+                report["status"] = "dynamic_page_unparsed" if "v-for" in text or "{{" in text else "no_article_links"
+                return []
+            articles = self._entries_to_articles(entries, count, keyword, feed)
+            # At most four article requests per listing, only useful items lacking date/content.
+            enrichment = [a for a in articles if assess(a)[1] >= .38 and (not a.published_ts or not a.summary)][:self.detail_limit]
+            async def enrich(article):
+                try:
+                    body, resolved_url = await self._get_text(client, article.url, timeout=5)
+                    metadata = primary_metadata(body, resolved_url)
+                    if not article.published_ts and metadata["published_ts"]:
+                        article.published_ts, article.published = metadata["published_ts"], metadata["published"]
+                    if not article.summary and metadata["summary"]:
+                        article.summary = normalize_summary(metadata["summary"])
+                    if not article.image_url and metadata["image_url"]:
+                        article.image_url = metadata["image_url"]
+                    report["enriched"] += 1
+                except (httpx.HTTPError, ValueError, ParserError) as exc:
+                    error = f"http_{exc.response.status_code}" if isinstance(exc, httpx.HTTPStatusError) else (str(exc) if isinstance(exc, SourceReadError) else type(exc).__name__)
+                    report["detail_failures"][error] = report["detail_failures"].get(error, 0) + 1
+            await asyncio.gather(*(enrich(a) for a in enrichment))
+            report["returned"] = len(articles)
+            report["status"] = "ok" if articles else "keyword_filtered_empty"
+            return articles
+        except httpx.HTTPStatusError as exc:
+            report["status"] = f"http_{exc.response.status_code}"
+        except asyncio.CancelledError:
+            report["status"] = "timeout"
+            raise
+        except (httpx.HTTPError, ValueError, ParserError) as exc:
+            report["status"] = str(exc) if isinstance(exc, SourceReadError) else type(exc).__name__
+        finally:
+            logger.info("[国内来源/%s] %s status=%s parsed=%s returned=%s", self.name, report["publisher"], report["status"], report["parsed"], report["returned"])
         return []
 
-    async def fetch_all(self, client: httpx.AsyncClient) -> list[Article]:
-        all_articles: list[Article] = []
-        for source in self.search_queries:
-            batch = await self.fetch(client, source["keyword"], count=self.max_per_feed)
-            for article in batch:
-                article.skill_name = self.name
-                article.region_scope = self.region_scope
-            all_articles.extend(batch)
-        logger.info(f"[{self.name}] 采集完成，获取 {len(all_articles)} 条原始资讯")
-        return all_articles
-
-    def _entries_to_articles(
-        self,
-        entries: list[Any],
-        count: int,
-        feed_url: str,
-        feed_meta: Any,
-    ) -> list[Article]:
-        articles: list[Article] = []
-        source_name = self._infer_source_name(feed_meta, feed_url)
-
-        for entry in entries:
-            if len(articles) >= count:
-                break
-
-            title = clean_title(str(entry.get("title", "")).strip())
-            url = str(entry.get("link", "")).strip()
-            summary_raw = str(entry.get("summary", "") or entry.get("description", "")).strip()
-            summary = normalize_summary(self._strip_html(summary_raw))
-
-            if not title or not url:
-                continue
-
-            content_text = f"{title} {summary}".lower()
-            if self.exclude_keywords and any(kw.lower() in content_text for kw in self.exclude_keywords):
-                continue
-            if self.include_keywords and not any(kw.lower() in content_text for kw in self.include_keywords):
-                continue
-
-            published_ts, published = self._extract_published(entry)
-            image_url = self._extract_image(entry, summary_raw)
-
-            articles.append(
-                Article(
-                    title=title,
-                    url=url,
-                    summary=summary,
-                    source_name=source_name,
-                    image_url=image_url,
-                    published=published,
-                    published_ts=published_ts,
-                )
-            )
-
+    async def fetch_all(self, client):
+        self.source_diagnostics = []
+        semaphore = asyncio.Semaphore(4)
+        async def fetch_one(source):
+            async with semaphore:
+                try:
+                    return await asyncio.wait_for(self.fetch(client, source["keyword"], self.max_per_feed), timeout=20)
+                except asyncio.TimeoutError:
+                    return []
+        results = await asyncio.gather(*(fetch_one(source) for source in self.search_queries))
+        articles = [a for batch in results for a in batch]
+        for article in articles:
+            article.skill_name, article.region_scope = self.name, self.region_scope
+        logger.info("[%s] 采集完成，获取 %s 条原始资讯", self.name, len(articles))
         return articles
 
-    def _infer_source_name(self, feed_meta: Any, feed_url: str) -> str:
-        title = str(feed_meta.get("feed", {}).get("title", "")).strip() if isinstance(feed_meta, dict) else ""
-        if title:
-            return title
-        m = re.search(r"https?://([^/]+)", feed_url)
-        return m.group(1) if m else self.source_name_fallback
+    def _entries_to_articles(self, entries, count, feed_url, feed_meta):
+        articles = []
+        source = next((s for s in self.feed_sources if s["url"] == feed_url), {})
+        name = self._infer_source_name(feed_meta, feed_url)
+        for entry in entries[:120]:
+            title = clean_text(clean_title(str(entry.get("title", ""))))
+            url = urljoin(feed_url, str(entry.get("link", "")))
+            summary_raw = str(entry.get("summary", "") or entry.get("description", ""))
+            summary = normalize_summary(self._strip_html(summary_raw))
+            if not title or urlsplit(url).scheme not in ("http", "https"):
+                continue
+            text = (title + " " + summary).lower()
+            if any(kw.lower() in text for kw in self.exclude_keywords):
+                continue
+            if self.include_keywords and not any(kw.lower() in text for kw in self.include_keywords):
+                continue
+            ts, published = self._extract_published(entry)
+            same_publisher = source_domain(url) == source_domain(feed_url)
+            articles.append(Article(title, url, summary=summary, source_name=name if same_publisher else source_domain(url), image_url=self._extract_image(entry, summary_raw), published=published, published_ts=ts, source_domain=source_domain(url), source_group=source.get("group", "") if same_publisher else "", source_kind=source.get("kind", "") if same_publisher else "", collection_url=feed_url, skill_name=self.name, region_scope=self.region_scope))
+        articles.sort(key=quality_score, reverse=True)
+        return articles[:min(count, self.max_per_feed)]
 
-    def _parse_html_as_entries(self, base_url: str, html: str) -> list[dict]:
-        """把非 RSS 的列表页粗解析为条目，作为兜底来源"""
-        if not html:
+    def _infer_source_name(self, feed_meta, feed_url):
+        source = next((s for s in self.feed_sources if s["url"] == feed_url), {})
+        if source:
+            return source.get("publisher", source["label"])
+        title = feed_meta.get("feed", {}).get("title", "") if isinstance(feed_meta, dict) else ""
+        return clean_text(title) or source_domain(feed_url) or self.source_name_fallback
+
+    def _parse_html_as_entries(self, base_url, text, article_pattern=""):
+        if not text:
             return []
-
-        entries: list[dict] = []
-        seen: set[str] = set()
-
-        # 常见列表项：<a href="...">标题</a>
-        for href, title_html in re.findall(
-            r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
-            html,
-            re.IGNORECASE | re.DOTALL,
-        ):
-            title = clean_title(self._strip_html(title_html))
-            if len(title) < 8:
+        root = lhtml.fromstring(text)
+        for node in root.xpath('//script|//style|//nav|//footer'):
+            node.drop_tree()
+        entries, positions = [], {}
+        for anchor in root.xpath('//a[@href]'):
+            url = urljoin(base_url, anchor.get("href"))
+            parts = urlsplit(url)
+            if parts.scheme not in ("http", "https") or not parts.hostname or url.split("#")[0] == base_url.split("#")[0] or anchor.get("href", "").startswith("#"):
                 continue
-            if href.startswith("javascript:") or href.startswith("#"):
+            if article_pattern and not re.search(article_pattern, parts.path, re.I):
                 continue
-
-            url = urljoin(base_url, href)
-            if not url.startswith("http"):
+            if not article_pattern and (parts.path.endswith((".pdf", ".zip")) or re.search(r"(?:list|tags|login|register|about|contact)(?:\d|/|\.|$)", parts.path, re.I)):
                 continue
-            if url in seen:
+            title = clean_text(anchor.get("title", ""))
+            if not title:
+                heading_nodes = anchor.xpath('.//h1|.//h2|.//h5|.//h6|.//*[contains(@class,"title") or contains(@class,"tit")]')
+                title = next((clean_text(n.text_content()) for n in heading_nodes if len(clean_text(n.text_content())) >= 8 and not DATE.fullmatch(clean_text(n.text_content()))), "")
+            if not title:
+                title = clean_text(anchor.text_content())
+            if len(title) < 8 or len(title) > 180 or "{{" in title:
                 continue
-            seen.add(url)
-
-            entries.append(
-                {
-                    "title": title,
-                    "link": url,
-                    "summary": "",
-                    "published": "",
-                }
-            )
-            if len(entries) >= self.max_per_feed * 3:
+            if url in positions:
+                continue
+            container = anchor
+            for _ in range(4):
+                parent = container.getparent()
+                if parent is None or parent.tag in ("body", "html", "main", "nav"):
+                    break
+                urls = {urljoin(base_url, a.get("href")) for a in parent.xpath('.//a[@href]') if len(clean_text(a.get("title", "") or a.text_content())) >= 8 and not re.search(r"tags", a.get("href", ""))}
+                if len(urls - {url}) or len(clean_text(parent.text_content())) > 1800:
+                    break
+                container = parent
+                if container.tag in ("li", "article"):
+                    break
+            summary_nodes = container.xpath('.//*[contains(@class,"intro") or contains(@class,"brief") or contains(@class,"summary") or contains(@class,"excerpt") or contains(@class,"richText") or contains(@class,"rwznr")]')
+            summary = clean_text(summary_nodes[0].text_content()) if summary_nodes else ""
+            date_values = []
+            for node in container.iter():
+                if not isinstance(node.tag, str) or node.tag in ("a", "img", "script", "style"):
+                    continue
+                value = clean_text(" ".join(node.itertext()))
+                classes = (node.get("class", "") or "").lower()
+                if len(value) < 50 and (DATE.fullmatch(value) or REVERSE_DATE.fullmatch(value)):
+                    date_values.append(value)
+                elif any(label in classes for label in ("date", "time", "publish")) and len(value) < 50:
+                    date_values.extend(m.group(0) for m in DATE.finditer(value))
+            # Some corporate cards split MM-DD and YYYY into adjacent date nodes.
+            date_sections = container.xpath('.//*[contains(@class,"c3l") or contains(@class,"date")]')
+            for node in date_sections:
+                value = clean_text(" ".join(node.itertext()))
+                if REVERSE_DATE.fullmatch(value):
+                    date_values.append(value)
+            ts, published = unique_date(date_values)
+            if not summary and title == clean_text(anchor.text_content()):
+                title = re.sub(r"^20\d{2}[-/年]\d{1,2}[-/月]\d{1,2}(?:日)?\s*", "", title)
+            images = container.xpath('.//img/@data-original|.//img/@src')
+            positions[url] = len(entries)
+            entries.append({"title": title, "link": url, "summary": summary, "published_ts": ts, "published": published, "image": urljoin(base_url, images[0]) if images else ""})
+            if len(entries) >= 120:
                 break
-
         return entries
 
     @staticmethod
-    def _strip_html(text: str) -> str:
+    def _strip_html(text):
         return re.sub(r"<[^>]+>", "", text or "")
 
     @staticmethod
-    def _extract_published(entry: Any) -> tuple[float, str]:
-        try:
-            if getattr(entry, "published_parsed", None):
-                ts = float(calendar.timegm(entry.published_parsed))
-                return ts, str(entry.get("published", ""))[:19]
-            if getattr(entry, "updated_parsed", None):
-                ts = float(calendar.timegm(entry.updated_parsed))
-                return ts, str(entry.get("updated", ""))[:19]
-        except Exception:
-            pass
-        return 0.0, ""
+    def _extract_published(entry):
+        if entry.get("published_ts"):
+            return float(entry["published_ts"]), entry.get("published", "")
+        value = entry.get("published_parsed")
+        if value:
+            return float(calendar.timegm(value)), str(entry.get("published", ""))[:19]
+        # Do not infer publication from RSS updated/dateModified fields.
+        return parse_date(str(entry.get("published", "")))
 
     @staticmethod
-    def _extract_image(entry: Any, summary_html: str) -> str:
-        try:
-            media = entry.get("media_content", []) or []
-            if media and isinstance(media, list) and isinstance(media[0], dict):
-                url = str(media[0].get("url", "")).strip()
-                if url:
-                    return url
-
-            links = entry.get("links", []) or []
-            for item in links:
-                if not isinstance(item, dict):
-                    continue
-                if item.get("rel") == "enclosure" and str(item.get("type", "")).startswith("image/"):
-                    url = str(item.get("href", "")).strip()
-                    if url:
-                        return url
-
-            m = re.search(r'<img[^>]+src="([^"]+)"', summary_html or "", re.IGNORECASE)
-            if m:
-                return m.group(1).strip()
-        except Exception:
-            return ""
-        return ""
+    def _extract_image(entry, summary_html):
+        if entry.get("image"):
+            return entry["image"]
+        media = entry.get("media_content", []) or []
+        if media and isinstance(media[0], dict) and media[0].get("url"):
+            return media[0]["url"]
+        for link in entry.get("links", []) or []:
+            if link.get("rel") == "enclosure" and str(link.get("type", "")).startswith("image/"):
+                return link.get("href", "")
+        match = re.search(r'<img[^>]+src="([^"]+)"', summary_html or "", re.I)
+        return match[1] if match else ""

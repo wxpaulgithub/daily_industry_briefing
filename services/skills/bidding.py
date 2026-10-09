@@ -5,6 +5,7 @@
 2) 关键词搜索补充（今日头条搜索 API）
 """
 import logging
+import asyncio
 
 import httpx
 
@@ -21,10 +22,10 @@ class BiddingSkill(RSSKeywordSkill):
 
     # 政府采购与公共资源（部分站点会限流，作为第一层来源）
     feed_sources = [
-        {"label": "中国政府采购网采购信息", "url": "https://www.ccgp.gov.cn/cggg/zygg/index.htm"},
-        {"label": "中国政府采购网地方采购", "url": "https://www.ccgp.gov.cn/cggg/dfgg/index.htm"},
-        {"label": "全国公共资源交易平台", "url": "https://www.ggzy.gov.cn/deal/dealList.html"},
-        {"label": "中国招标投标公共服务平台", "url": "https://bulletin.cebpubservice.com/"},  # 兜底 HTML 列表解析
+        {"label": "中国政府采购网采购信息", "publisher": "中国政府采购网采购信息", "kind": "official", "url": "https://www.ccgp.gov.cn/cggg/zygg/index.htm"},
+        {"label": "中国政府采购网地方采购", "publisher": "中国政府采购网地方采购", "kind": "official", "url": "https://www.ccgp.gov.cn/cggg/dfgg/index.htm"},
+        {"label": "全国公共资源交易平台", "publisher": "全国公共资源交易平台", "kind": "official", "url": "https://www.ggzy.gov.cn/deal/dealList.html"},
+        {"label": "中国招标投标公共服务平台", "publisher": "中国招标投标公共服务平台", "kind": "official", "url": "https://bulletin.cebpubservice.com/"},  # 兜底 HTML 列表解析
     ]
 
     include_keywords = [
@@ -116,6 +117,8 @@ class BiddingSkill(RSSKeywordSkill):
                         published_ts=float(item.get("publish_time", 0) or 0),
                         skill_name=self.name,
                         region_scope=self.region_scope,
+                        source_kind="aggregator",
+                        collection_url="https://www.toutiao.com/api/search/content/",
                     )
                 )
         except Exception as e:
@@ -128,8 +131,8 @@ class BiddingSkill(RSSKeywordSkill):
 
         # 第二层：关键词搜索补充
         search_articles: list[Article] = []
-        for kw in self.search_queries_toutiao:
-            batch = await self._fetch_toutiao(client, kw, count=10)
+        batches = await asyncio.gather(*(self._fetch_toutiao(client, kw, count=10) for kw in self.search_queries_toutiao))
+        for batch in batches:
             search_articles.extend(batch)
 
         merged = rss_articles + search_articles

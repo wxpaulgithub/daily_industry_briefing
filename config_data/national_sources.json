@@ -1,0 +1,33 @@
+{
+  "sources": [
+    {
+      "label": "中国AGV网资讯",
+      "publisher": "中国AGV网",
+      "url": "https://www.chinaagv.com/news/",
+      "kind": "industry_media",
+      "group": "中叉网/AGV网",
+      "article_pattern": "/news/detail/\\d{6}/\\d+\\.html"
+    },
+    {
+      "label": "掌链物流与供应链资讯",
+      "publisher": "掌链",
+      "url": "https://www.i56r.com/",
+      "kind": "industry_media",
+      "article_pattern": "/new/\\d+$"
+    },
+    {
+      "label": "北自科技新闻",
+      "publisher": "北自科技官网",
+      "url": "https://www.bzkj.cn/Home.html",
+      "kind": "vendor",
+      "article_pattern": "/News_details/\\d+\\.html"
+    },
+    {
+      "label": "兰剑智能公司新闻",
+      "publisher": "兰剑智能官网",
+      "url": "https://www.blueswords.com/company-news_3",
+      "kind": "vendor",
+      "article_pattern": "/company-news-\\d+$"
+    }
+  ]
+}

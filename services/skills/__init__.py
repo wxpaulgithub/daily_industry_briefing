@@ -7,6 +7,7 @@
   3. 在下方 SKILLS 列表中实例化并注册
 """
 
+from services.skills.national_sources import NationalDirectSkill, OrganizerNewsSkill
 from services.skills.toutiao import ToutiaoSkill
 from services.skills.wechat import WeChatSkill
 from services.skills.wechat_rss import WeChatRssSkill
@@ -33,6 +34,8 @@ SKILLS = [
     BiddingSkill(),
     IndustryMediaSkill(),
     ExpoAssocSkill(),
+    NationalDirectSkill(),
+    OrganizerNewsSkill(),
 ]
 
 # 搜狗通道仅作为可选兜底，默认关闭

@@ -1,0 +1,8 @@
+{% macro news_meta(article, scope) -%}
+{% if scope == "national" %}
+<span class="news-meta-unit">{{ article.source_name }}</span>
+{% if article.source_domain and article.source_domain != article.source_name %}<span class="news-meta-unit">· {{ article.source_domain }}</span>{% endif %}
+{% if article.news_category %}<span class="news-meta-unit">· {{ article.news_category }}</span>{% endif %}
+<span class="news-meta-date">· {{ article.published or "日期待核实" }}</span>
+{% else %}{{ article.source_name }} · {{ article.published }}{% endif %}
+{%- endmacro %}

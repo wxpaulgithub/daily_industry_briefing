@@ -1,3 +1,4 @@
+{% from "news_meta.html" import news_meta %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 
@@ -387,6 +388,20 @@
       gap: 8px;
     }
 
+    .national-news-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 8px;
+      align-items: center;
+    }
+    .news-meta-unit {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    .news-meta-date {
+      white-space: nowrap;
+    }
+
     .featured-source::before {
       content: '';
       display: inline-block;
@@ -725,7 +740,7 @@
             onerror="this.onerror=null;this.src='{{ fallback_images[_fi] }}';">
         </div>
         <div class="featured-content">
-          <div class="featured-source">{{ articles[0].source_name }} · {{ articles[0].published }}</div>
+          <div class="featured-source{% if scope == "national" %} national-news-meta{% endif %}">{{ news_meta(articles[0], scope) }}</div>
           <h2 class="featured-title">{{ articles[0].title }}</h2>
           {% if articles[0].summary %}
           <p class="featured-summary">{{ articles[0].summary }}</p>
@@ -740,7 +755,7 @@
       {% for article in articles[1:] %}
       <a href="{{ article.url }}" target="_blank" class="article-card">
         <div class="article-body">
-          <div class="article-meta">{{ article.source_name }} · {{ article.published }}</div>
+          <div class="article-meta{% if scope == "national" %} national-news-meta{% endif %}">{{ news_meta(article, scope) }}</div>
           <div class="article-title">{{ article.title }}</div>
           {% if article.summary %}
           <div class="article-summary">{{ article.summary }}</div>

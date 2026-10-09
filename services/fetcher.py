@@ -28,7 +28,9 @@ from config import (
     MAX_ARTICLES_LOCAL,
     MAX_ARTICLES_WECHAT,
     MAX_ARTICLE_AGE_DAYS,
-    NATIONAL_BIDDING_MIN_COUNT,
+    NATIONAL_SOURCE_MAX_COUNT,
+    NATIONAL_UNKNOWN_DATE_MAX_COUNT,
+    RUNTIME_DIR,
     REQUEST_TIMEOUT,
     SKILL_CACHE_TTL_SECONDS,
     SKILL_FAILURE_COOLDOWN_SECONDS,
@@ -38,6 +40,8 @@ from config import (
     USER_AGENT,
 )
 from services.wechat_sources import source_match_scope
+
+from services.national_news import (is_national, annotate, assess, deduplicate_national, quality_score, select_national_articles, write_diagnostics)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,12 @@ class Article:
     wechat_category: str = ""  # wechat 页子分类：industry / local
     demand_signal_score: float = 0.0
     is_potential_warehouse_demand: bool = False
+    source_domain: str = ""
+    source_group: str = ""
+    source_kind: str = ""
+    collection_url: str = ""
+    news_category: str = ""
+    relevance_score: float = 0.0
 
     @property
     def uid(self) -> str:
@@ -188,6 +198,7 @@ class NewsSkill(ABC):
 
     async def fetch_all(self, client: httpx.AsyncClient) -> list[Article]:
         """并发搜索所有关键词并汇总结果（通用实现，子类一般无需重写）"""
+        self.source_diagnostics = []
         tasks = [self.fetch(client, q["keyword"], count=10) for q in self.search_queries]
         results = await asyncio.gather(*tasks)
         articles = []
@@ -518,6 +529,11 @@ def filter_relevant(articles: list[Article]) -> list[Article]:
     relevant = []
     for article in articles:
         scope = (article.region_scope or "national")
+        if is_national(article):
+            annotate(article)
+            if not assess(article)[2]:
+                relevant.append(article)
+            continue
         full_text = (article.title + " " + article.summary + " " + article.source_name).lower()
         # 所有来源统一排除无关内容
         if any(kw.lower() in full_text for kw in EXCLUDE_KEYWORDS):
@@ -551,6 +567,8 @@ def filter_relevant(articles: list[Article]) -> list[Article]:
 
 def deduplicate(articles: list[Article]) -> list[Article]:
     """按标题相似度去重"""
+    national = deduplicate_national([a for a in articles if is_national(a)])
+    articles = [a for a in articles if not is_national(a)]
     seen_titles: list[str] = []
     unique: list[Article] = []
     strip_re = "[，。、！？：；\u201c\u201d\u2018\u2019（）【】\\s]+"
@@ -570,11 +588,13 @@ def deduplicate(articles: list[Article]) -> list[Article]:
         if not is_dup:
             seen_titles.append(article.title.lower().strip())
             unique.append(article)
-    return unique
+    return national + unique
 
 
 def score_article(article: Article) -> float:
     """为文章打分"""
+    if is_national(article):
+        return quality_score(article)
     score = 0.4
     if article.published_ts > 0:
         hours_ago = (time.time() - article.published_ts) / 3600
@@ -676,34 +696,6 @@ def select_articles(articles: list[Article], count: int) -> list[Article]:
 
     selected.sort(key=lambda a: a.published_ts, reverse=True)
     return selected[:count]
-
-
-def _ensure_bidding_quota(selected: list[Article], pool: list[Article], min_count: int) -> list[Article]:
-    """国内页招投标保底条数：有足够候选时保证最小数量"""
-    if min_count <= 0:
-        return selected
-
-    bidding_selected = [a for a in selected if a.skill_name == "招投标"]
-    if len(bidding_selected) >= min_count:
-        return selected
-
-    selected_uids = {a.uid for a in selected}
-    bidding_candidates = [a for a in pool if a.skill_name == "招投标" and a.uid not in selected_uids]
-    bidding_candidates.sort(key=score_article, reverse=True)
-
-    need = min_count - len(bidding_selected)
-    additions = bidding_candidates[:need]
-    if not additions:
-        return selected
-
-    non_bidding = [a for a in selected if a.skill_name != "招投标"]
-    non_bidding.sort(key=score_article)
-    replace_n = min(len(additions), len(non_bidding))
-    to_remove = {a.uid for a in non_bidding[:replace_n]}
-
-    replaced = [a for a in selected if a.uid not in to_remove] + additions[:replace_n]
-    replaced.sort(key=lambda a: a.published_ts, reverse=True)
-    return replaced
 
 
 def _is_discover_placeholder(article: Article) -> bool:
@@ -831,10 +823,12 @@ async def fetch_all_news() -> list[Article]:
     logger.info(f"所有 Skill 采集完成，共 {len(all_articles)} 条")
     logger.info(f"[全量刷新] 原始诊断: {_article_diag_summary(all_articles)}")
 
+    raw_articles = list(all_articles)
     all_articles = filter_relevant(all_articles)
     logger.info(f"相关性过滤后 {len(all_articles)} 条")
     logger.info(f"[全量刷新] 过滤后诊断: {_article_diag_summary(all_articles)}")
 
+    relevant_articles = list(all_articles)
     all_articles = deduplicate(all_articles)
     logger.info(f"去重后 {len(all_articles)} 条")
     logger.info(f"[全量刷新] 去重后诊断: {_article_diag_summary(all_articles)}")
@@ -867,8 +861,8 @@ async def fetch_all_news() -> list[Article]:
         if (a.region_scope or "national") not in ("discover", "wechat")
     ]
 
-    selected_national = select_articles(list(national_pool), MAX_ARTICLES)
-    selected_national = _ensure_bidding_quota(selected_national, national_pool, NATIONAL_BIDDING_MIN_COUNT)
+    selected_national = select_national_articles(national_pool, MAX_ARTICLES, per_source_limit=NATIONAL_SOURCE_MAX_COUNT, unknown_date_limit=NATIONAL_UNKNOWN_DATE_MAX_COUNT, max_age_days=MAX_ARTICLE_AGE_DAYS)
+    write_diagnostics(raw_articles, relevant_articles, all_articles, selected_national, [s for s in SKILLS if _skill_matches_scope(s, "national")], results, RUNTIME_DIR / "national_news_diagnostics.json")
     selected_local = select_articles(list(local_pool), MAX_ARTICLES_LOCAL)
     selected_discover = _select_discover_articles(list(discover_pool), MAX_ARTICLES_DISCOVER)
     selected_wechat = select_articles(list(wechat_pool), MAX_ARTICLES_WECHAT)
@@ -959,9 +953,7 @@ def _select_by_scope(articles: list[Article], scope: str) -> list[Article]:
         a for a in articles
         if (a.region_scope or "national") not in ("local", "discover", "wechat")
     ]
-    selected = select_articles(pool, MAX_ARTICLES)
-    selected = _ensure_bidding_quota(selected, pool, NATIONAL_BIDDING_MIN_COUNT)
-    return selected
+    return select_national_articles(pool, MAX_ARTICLES, per_source_limit=NATIONAL_SOURCE_MAX_COUNT, unknown_date_limit=NATIONAL_UNKNOWN_DATE_MAX_COUNT, max_age_days=MAX_ARTICLE_AGE_DAYS)
 
 
 async def fetch_news_by_scope(scope: str) -> list[Article]:
@@ -997,9 +989,11 @@ async def fetch_news_by_scope(scope: str) -> list[Article]:
 
     logger.info(f"[局部刷新/{scope}] 原始汇总 {len(all_articles)} 条")
     logger.info(f"[局部刷新/{scope}] 原始诊断: {_article_diag_summary(all_articles)}")
+    raw_articles = list(all_articles)
     all_articles = filter_relevant(all_articles)
     logger.info(f"[局部刷新/{scope}] 相关性过滤后 {len(all_articles)} 条")
     logger.info(f"[局部刷新/{scope}] 过滤后诊断: {_article_diag_summary(all_articles)}")
+    relevant_articles = list(all_articles)
     all_articles = deduplicate(all_articles)
     logger.info(f"[局部刷新/{scope}] 去重后 {len(all_articles)} 条")
     logger.info(f"[局部刷新/{scope}] 去重后诊断: {_article_diag_summary(all_articles)}")
@@ -1009,6 +1003,8 @@ async def fetch_news_by_scope(scope: str) -> list[Article]:
         article.is_potential_warehouse_demand = article.demand_signal_score >= 0.8
 
     selected = _select_by_scope(all_articles, scope)
+    if scope == "national":
+        write_diagnostics(raw_articles, relevant_articles, all_articles, selected, target_skills, results, RUNTIME_DIR / "national_news_diagnostics.json")
 
     # 统一写入本轮抓取时间，前端用于判断是否有新数据
     fetched_mark = time.time()

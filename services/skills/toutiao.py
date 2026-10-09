@@ -38,6 +38,10 @@ class ToutiaoSkill(NewsSkill):
     async def fetch(self, client: httpx.AsyncClient, keyword: str, count: int = 10) -> list[Article]:
         """从今日头条搜索 API 获取资讯"""
         articles = []
+        report = {"url": "https://www.toutiao.com/api/search/content/", "publisher": "今日头条", "query": keyword, "status": "fetching", "parsed": 0, "returned": 0}
+        if not hasattr(self, "source_diagnostics"):
+            self.source_diagnostics = []
+        self.source_diagnostics.append(report)
         try:
             resp = await client.get(
                 "https://www.toutiao.com/api/search/content/",
@@ -52,11 +56,13 @@ class ToutiaoSkill(NewsSkill):
                 },
                 headers={"Referer": "https://www.toutiao.com/"},
             )
-            data = resp.json() if resp.status_code == 200 else {}
+            resp.raise_for_status()
+            data = resp.json()
             rows = (data or {}).get("data") or []
             if not isinstance(rows, list):
                 rows = []
 
+            report["parsed"] = len(rows)
             for item in rows:
                 if not isinstance(item, dict):
                     continue
@@ -75,12 +81,17 @@ class ToutiaoSkill(NewsSkill):
                     url=url,
                     summary=normalize_summary(item.get("abstract", "")),
                     source_name=item.get("media_name", ""),
+                    source_kind="aggregator",
+                    collection_url="https://www.toutiao.com/api/search/content/",
                     image_url=item.get("large_image_url", "") or item.get("image_url", ""),
                     published=(item.get("datetime", "") or "")[:16],
                     published_ts=float(item.get("publish_time", 0)),
                 ))
 
+            report["returned"] = len(articles)
+            report["status"] = "ok" if articles else "no_search_results"
         except Exception as e:
-            logger.warning(f"[今日头条] 搜索失败 [{keyword}]: {e}")
+            report["status"] = f"http_{e.response.status_code}" if isinstance(e, httpx.HTTPStatusError) else type(e).__name__
+            logger.warning("[今日头条] 搜索失败 [%s]: %s", keyword, report["status"])
 
         return articles

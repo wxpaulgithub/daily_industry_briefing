@@ -11,12 +11,12 @@ class IndustryMediaSkill(RSSKeywordSkill):
 
     feed_sources = [
         # -- 通用科技/财经（RSS） --
-        {"label": "36氪资讯", "url": "https://36kr.com/feed"},
+        {"label": "36氪资讯", "publisher": "36氪资讯", "kind": "industry_media", "url": "https://36kr.com/feed"},
         # -- 工业自动化垂直门户（HTML 列表页） --
-        {"label": "中国传动网-行业资讯", "url": "https://www.chuandong.com/news/list4.html"},
-        {"label": "中国传动网-企业动态", "url": "https://www.chuandong.com/news/list8.html"},
-        {"label": "智能制造网-行业动态", "url": "https://www.gkzhan.com/news/t15/list.html"},
-        {"label": "智能制造网-市场分析", "url": "https://www.gkzhan.com/news/t14/list.html"},
+        {"label": "中国传动网-行业资讯", "publisher": "中国传动网", "kind": "industry_media", "url": "https://www.chuandong.com/news/list4.html"},
+        {"label": "中国传动网-企业动态", "publisher": "中国传动网", "kind": "industry_media", "url": "https://www.chuandong.com/news/list8.html"},
+        {"label": "智能制造网-行业动态", "publisher": "智能制造网", "kind": "industry_media", "url": "https://www.gkzhan.com/news/t15/list.html"},
+        {"label": "智能制造网-市场分析", "publisher": "智能制造网", "kind": "industry_media", "url": "https://www.gkzhan.com/news/t14/list.html"},
     ]
 
     include_keywords = [

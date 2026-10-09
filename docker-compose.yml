@@ -9,6 +9,8 @@ services:
       - "8088:8088"
     environment:
       - COOKIE_FILE_PATH=/runtime/cookie.txt
+      - NATIONAL_SOURCE_MAX_COUNT=${NATIONAL_SOURCE_MAX_COUNT:-6}
+      - NATIONAL_UNKNOWN_DATE_MAX_COUNT=${NATIONAL_UNKNOWN_DATE_MAX_COUNT:-4}
       - SITE_URL=${SITE_URL:-https://mag.mhstar.tech}
       - FETCH_NEWS_ON_STARTUP=${FETCH_NEWS_ON_STARTUP:-true}
       - WECOM_WEBHOOK_URL=${WECOM_WEBHOOK_URL:-}
