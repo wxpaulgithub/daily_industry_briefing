@@ -5,6 +5,7 @@
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +23,47 @@ _jinja_env = Environment(
     trim_blocks=True,
     lstrip_blocks=True,
 )
+
+
+def _format_article_date(value: str | None, timestamp: float = 0.0) -> str:
+    """Render article publication dates in a consistent YYYY-MM-DD format."""
+    text = str(value or "").strip()
+    if not text and not timestamp:
+        return ""
+
+    # Most sources already provide ISO dates; some use Chinese or slash-separated dates.
+    match = re.search(r"(?P<year>20\d{2})\s*[-/.年]\s*(?P<month>\d{1,2})\s*[-/.月]\s*(?P<day>\d{1,2})\s*日?", text)
+    if match:
+        try:
+            return datetime(
+                int(match.group("year")), int(match.group("month")), int(match.group("day"))
+            ).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+    # Support ISO timestamps and RFC 822 dates used by RSS feeds.
+    if text:
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+        try:
+            from email.utils import parsedate_to_datetime
+
+            return parsedate_to_datetime(text).strftime("%Y-%m-%d")
+        except (TypeError, ValueError, OverflowError):
+            pass
+
+    # Relative labels and unrecognized source formats fall back to the parsed source timestamp.
+    if timestamp:
+        try:
+            return datetime.fromtimestamp(float(timestamp)).strftime("%Y-%m-%d")
+        except (TypeError, ValueError, OverflowError, OSError):
+            pass
+    return ""
+
+
+_jinja_env.filters["article_date"] = _format_article_date
 
 
 def _get_date_str() -> tuple[str, str]:
